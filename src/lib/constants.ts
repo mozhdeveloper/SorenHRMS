@@ -226,18 +226,18 @@ export const NAV_ITEMS: {
             absolute: true,
         },
         {
-            label: "Face Enrollment",
-            href: "/face-enrollment",
-            icon: "ScanFace",
-            roles: ["admin", "hr", "employee", "supervisor"],
-            permission: "page:attendance",
-        },
-        {
             label: "My Profile",
             href: "/profile",
             icon: "UserCircle",
             roles: ["admin", "hr", "finance", "employee", "supervisor", "payroll_admin", "auditor"],
             permission: "page:dashboard",
+        },
+        {
+            label: "Face Enrollment",
+            href: "/face-enrollment",
+            icon: "ScanFace",
+            roles: ["employee", "supervisor"],
+            permission: "page:attendance",
         },
         {
             label: "Settings",

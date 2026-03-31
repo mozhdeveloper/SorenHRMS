@@ -21,7 +21,7 @@ import type {
   SalaryChangeRequest, SalaryHistoryEntry,
   PenaltyRecord,
   Announcement, TextChannel, ChannelMessage,
-  TaskGroup, Task, TaskCompletionReport, TaskComment,
+  TaskGroup, Task, TaskCompletionReport, TaskComment, TaskTag,
   Timesheet, AttendanceRuleSet,
   NotificationLog, NotificationRule,
   LocationPing, SiteSurveyPhoto, BreakRecord,
@@ -40,12 +40,24 @@ function supabase() {
   return createClient();
 }
 
+/** Returns true for transient network failures that are safe to retry. */
+function isNetworkError(error: { message?: string }): boolean {
+  const msg = error.message ?? "";
+  return (
+    msg.includes("Failed to fetch") ||
+    msg.includes("NetworkError") ||
+    msg.includes("network request failed") ||
+    msg.includes("TypeError")
+  );
+}
+
 /** Generic fetch-all from a table, with camelCase conversion */
 async function fetchAll<T>(table: string, options?: {
   select?: string;
   filter?: Record<string, string>;
   order?: { column: string; ascending?: boolean };
-}): Promise<T[]> {
+// _attempt is internal — do not pass externally
+}, _attempt = 0): Promise<T[]> {
   let query = supabase().from(table).select(options?.select ?? "*");
   if (options?.filter) {
     for (const [key, value] of Object.entries(options.filter)) {
@@ -57,6 +69,12 @@ async function fetchAll<T>(table: string, options?: {
   }
   const { data, error } = await query;
   if (error) {
+    // Retry transient network failures (e.g. "Failed to fetch" when ~40 requests fire
+    // simultaneously during hydration and the browser's connection pool is saturated).
+    if (isNetworkError(error) && _attempt < 3) {
+      await new Promise<void>((r) => setTimeout(r, 200 * (_attempt + 1)));
+      return fetchAll(table, options, _attempt + 1);
+    }
     console.error(`[db] fetchAll ${table}:`, error.message);
     return [];
   }
@@ -80,6 +98,10 @@ async function insertRow(table: string, row: Record<string, unknown>) {
     // This can occur when the write-through subscriber fires after hydration and
     // re-attempts to insert records that were just fetched from the DB.
     if (error.code === "23505") return true;
+    // 42501 = insufficient_privilege (RLS policy violation).
+    // Suppress in demo mode — Supabase is not configured so the
+    // anonymous client has no JWT that satisfies RLS predicates.
+    if (error.code === "42501" && isDemoMode) return false;
     console.error(`[db] insert ${table}:`, error.message);
   }
   return !error;
@@ -199,7 +221,19 @@ export const leaveDb = {
 
 export const attendanceDb = {
   fetchLogs: () => fetchAll<AttendanceLog>("attendance_logs"),
-  fetchEvents: () => fetchAll<AttendanceEvent>("attendance_events", { order: { column: "timestamp_utc", ascending: false } }),
+  fetchEvents: async (): Promise<AttendanceEvent[]> => {
+    const rows = await fetchAll<AttendanceEvent>("attendance_events", { order: { column: "timestamp_utc", ascending: false } });
+    // keysToCamel converts "timestamp_utc" → "timestampUtc" but the type expects "timestampUTC".
+    // Remap here so DB-hydrated events match locally-created events.
+    return rows.map((r) => {
+      const row = r as unknown as Record<string, unknown>;
+      if (row.timestampUtc !== undefined && row.timestampUTC === undefined) {
+        row.timestampUTC = row.timestampUtc;
+        delete row.timestampUtc;
+      }
+      return row as unknown as AttendanceEvent;
+    });
+  },
 
   async upsertLog(log: AttendanceLog): Promise<boolean> {
     // Flatten locationSnapshot for DB
@@ -349,7 +383,7 @@ export const payrollDb = {
     const targetIds = new Set(payslipIds);
 
     // Remove payslips no longer in the run
-    const toRemove = [...existingIds].filter((id) => !targetIds.has(id));
+    const toRemove = [...existingIds].filter((id) => !targetIds.has(id as string)) as string[];
     if (toRemove.length > 0) {
       const { error: delErr } = await supabase()
         .from("payroll_run_payslips")
@@ -537,7 +571,7 @@ export const projectsDb = {
     const existingIds = new Set((existing ?? []).map((r: { employee_id: string }) => r.employee_id));
     const targetIds = new Set(employeeIds);
 
-    const toRemove = [...existingIds].filter((id) => !targetIds.has(id));
+    const toRemove = [...existingIds].filter((id) => !targetIds.has(id as string)) as string[];
     if (toRemove.length > 0) {
       const { error: delErr } = await supabase()
         .from("project_assignments")
@@ -632,7 +666,24 @@ export const tasksDb = {
   },
 
   async upsertTask(t: Task): Promise<boolean> {
-    return upsertRow("tasks", t as unknown as Record<string, unknown>);
+    // Explicitly map to DB columns so unknown fields never reach Supabase
+    const row: Record<string, unknown> = {
+      id: t.id,
+      group_id: t.groupId,
+      project_id: t.projectId ?? null,
+      title: t.title,
+      description: t.description,
+      priority: t.priority,
+      status: t.status,
+      due_date: t.dueDate ?? null,
+      assigned_to: t.assignedTo,
+      created_by: t.createdBy,
+      created_at: t.createdAt,
+      updated_at: t.updatedAt,
+      completion_required: t.completionRequired,
+      tags: t.tags ?? [],
+    };
+    return upsertRow("tasks", row);
   },
 
   async deleteTask(id: string): Promise<boolean> {
@@ -645,6 +696,23 @@ export const tasksDb = {
 
   async insertComment(c: TaskComment): Promise<boolean> {
     return insertRow("task_comments", c as unknown as Record<string, unknown>);
+  },
+
+  fetchTags: () => fetchAll<TaskTag>("task_tags", { order: { column: "name", ascending: true } }),
+
+  async upsertTag(tag: TaskTag): Promise<boolean> {
+    const row: Record<string, unknown> = {
+      id: tag.id,
+      name: tag.name,
+      color: tag.color,
+      created_by: tag.createdBy,
+      created_at: tag.createdAt,
+    };
+    return upsertRow("task_tags", row);
+  },
+
+  async deleteTag(id: string): Promise<boolean> {
+    return deleteRow("task_tags", id);
   },
 };
 

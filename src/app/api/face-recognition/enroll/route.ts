@@ -15,23 +15,28 @@ import { validateKioskAuth } from "@/lib/kiosk-auth";
 export async function POST(request: NextRequest) {
     const action = request.nextUrl.searchParams.get("action") || "enroll";
 
-    // Rate limit + kiosk auth for unauthenticated kiosk actions (verify, match)
-    if (action === "verify" || action === "match") {
-        const rl = kioskRateLimiter.check(getClientIp(request));
-        if (!rl.ok) {
-            return NextResponse.json(
-                { ok: false, error: "Too many requests" },
-                { status: 429, headers: { "Retry-After": String(Math.ceil(rl.resetMs / 1000)) } },
-            );
-        }
-        const auth = validateKioskAuth(request.headers);
-        if (!auth.ok) {
-            return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
-        }
+    // Rate limit all actions
+    const rl = kioskRateLimiter.check(getClientIp(request));
+    if (!rl.ok) {
+        return NextResponse.json(
+            { ok: false, error: "Too many requests" },
+            { status: 429, headers: { "Retry-After": String(Math.ceil(rl.resetMs / 1000)) } },
+        );
     }
+
+    // Auth: accept kiosk API key OR x-user-id header (authenticated employee page).
+    // Kiosk devices send x-kiosk-api-key; logged-in employees send x-user-id.
+    const auth = validateKioskAuth(request.headers);
+    const hasUserId = !!request.headers.get("x-user-id");
+    if (!auth.ok && !hasUserId) {
+        console.warn(`[face-api-route] Auth REJECTED for action=${action}: no kiosk key, no user-id`);
+        return NextResponse.json({ ok: false, error: "Authentication required" }, { status: 401 });
+    }
+    console.log(`[face-api-route] Auth OK for action=${action} (kiosk=${auth.ok}, userId=${request.headers.get("x-user-id") ?? "none"})`);
 
     try {
         const body = await request.json();
+        console.log(`[face-api-route] Processing action=${action}`);
 
         switch (action) {
             case "enroll":
@@ -43,9 +48,11 @@ export async function POST(request: NextRequest) {
             case "delete":
                 return handleDelete(request, body);
             default:
+                console.warn(`[face-api-route] Unknown action: ${action}`);
                 return NextResponse.json({ ok: false, error: `Unknown action: ${action}` }, { status: 400 });
         }
-    } catch {
+    } catch (err) {
+        console.error(`[face-api-route] Failed to parse request body:`, err);
         return NextResponse.json({ ok: false, error: "Invalid request body" }, { status: 400 });
     }
 }
@@ -77,6 +84,7 @@ export async function GET(request: NextRequest) {
 
 async function handleEnroll(request: NextRequest, body: Record<string, unknown>) {
     const { employeeId, embedding, referenceImage } = body as { employeeId?: string; embedding?: number[]; referenceImage?: string };
+    console.log(`[face-enroll-handler] employeeId=${employeeId} embeddingLen=${embedding?.length} hasRefImage=${!!referenceImage}`);
 
     if (!employeeId || typeof employeeId !== "string") {
         return NextResponse.json({ ok: false, error: "Missing or invalid employee ID" }, { status: 400 });
@@ -95,6 +103,7 @@ async function handleEnroll(request: NextRequest, body: Record<string, unknown>)
     }
 
     const result = await enrollFace(employeeId, embedding, performerId, referenceImage);
+    console.log(`[face-enroll-handler] Result: ok=${result.ok} error=${result.error ?? "none"}`);
 
     if (!result.ok) {
         return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
@@ -105,6 +114,7 @@ async function handleEnroll(request: NextRequest, body: Record<string, unknown>)
 
 async function handleVerify(body: Record<string, unknown>) {
     const { employeeId, embedding, probeImage } = body as { employeeId?: string; embedding?: number[]; probeImage?: string };
+    console.log(`[face-verify-handler] employeeId=${employeeId} embeddingLen=${embedding?.length} hasProbeImage=${!!probeImage}`);
 
     if (!employeeId || typeof employeeId !== "string") {
         return NextResponse.json({ ok: false, error: "Missing employee ID" }, { status: 400 });
@@ -125,6 +135,7 @@ async function handleVerify(body: Record<string, unknown>) {
     }
 
     const result = await verifyFace(employeeId, embedding, probeImage);
+    console.log(`[face-verify-handler] Result: ok=${result.ok} verified=${result.verified} distance=${result.distance?.toFixed(4) ?? "?"} error=${result.error ?? "none"}`);
 
     if (!result.ok) {
         return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
@@ -140,6 +151,7 @@ async function handleVerify(body: Record<string, unknown>) {
 
 async function handleMatch(body: Record<string, unknown>) {
     const { embedding, probeImage } = body as { embedding?: number[]; probeImage?: string };
+    console.log(`[face-match-handler] embeddingLen=${embedding?.length} hasProbeImage=${!!probeImage}`);
 
     if (!embedding || !Array.isArray(embedding) || embedding.length !== 128) {
         return NextResponse.json({ ok: false, error: "Invalid embedding" }, { status: 400 });
@@ -151,6 +163,7 @@ async function handleMatch(body: Record<string, unknown>) {
     }
 
     const result = await matchFace(embedding, probeImage);
+    console.log(`[face-match-handler] Result: ok=${result.ok} matched=${!!result.employeeId} employeeId=${result.employeeId ?? "none"} distance=${result.distance?.toFixed(4) ?? "?"} error=${result.error ?? "none"}`);
 
     if (!result.ok) {
         return NextResponse.json({ ok: false, error: result.error }, { status: 500 });

@@ -204,13 +204,13 @@ Respond with ONLY a JSON object (no markdown, no code fences):
                     continue;
                 }
                 
-                // All retries failed - fallback
+                // All retries failed - reject for safety
                 return NextResponse.json({
-                    verified: true,
-                    confidence: "low",
-                    livenessScore: 50,
-                    faceDetected: true,
-                    reason: "AI verification unavailable after retries — allowed with reduced confidence.",
+                    verified: false,
+                    confidence: "none",
+                    livenessScore: 0,
+                    faceDetected: false,
+                    reason: "AI verification unavailable after retries — rejected for safety.",
                     spoofIndicators: [],
                 });
             }
@@ -220,11 +220,11 @@ Respond with ONLY a JSON object (no markdown, no code fences):
 
             if (!content) {
                 return NextResponse.json({
-                    verified: true,
-                    confidence: "low",
-                    livenessScore: 50,
-                    faceDetected: true,
-                    reason: "AI returned empty response — allowed with reduced confidence.",
+                    verified: false,
+                    confidence: "none",
+                    livenessScore: 0,
+                    faceDetected: false,
+                    reason: "AI returned empty response — rejected for safety.",
                     spoofIndicators: [],
                 });
             }
@@ -282,11 +282,11 @@ Respond with ONLY a JSON object (no markdown, no code fences):
     // All retries exhausted
     console.error("[verify-face] All retries failed:", lastError);
     return NextResponse.json({
-        verified: true,
-        confidence: "low",
-        livenessScore: 50,
-        faceDetected: true,
-        reason: "AI service unreachable after retries — allowed with reduced confidence.",
+        verified: false,
+        confidence: "none",
+        livenessScore: 0,
+        faceDetected: false,
+        reason: "AI service unreachable after retries — rejected for safety.",
         spoofIndicators: [],
     });
 }

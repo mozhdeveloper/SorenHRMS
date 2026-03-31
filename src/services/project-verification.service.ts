@@ -124,7 +124,7 @@ export async function getProjectVerificationMethod(
     return {
       id: `PVM-${projectId}`,
       projectId,
-      verificationMethod: "face_or_qr",
+      verificationMethod: "face_only",
       requireGeofence: true,
       geofenceRadiusMeters: 100,
       allowManualOverride: false,

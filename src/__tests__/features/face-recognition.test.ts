@@ -7,7 +7,7 @@
  *
  * Covers:
  *   1. Core math: distance computation, L2 normalization
- *   2. Threshold accuracy: pre-filter (0.75), strict (0.55), AI (75%)
+ *   2. Threshold accuracy: pre-filter (0.50), strict (0.38), AI (75%)
  *   3. Same-person acceptance under various conditions
  *   4. Different-person rejection (the critical fix)
  *   5. Dual-layer decision logic (embedding + AI combined)
@@ -21,8 +21,8 @@
 
 // ─── Constants (mirror face-recognition.service.ts) ─────────────────────────
 
-const EMBEDDING_PREFILTER_THRESHOLD = 0.75;
-const EMBEDDING_STRICT_THRESHOLD = 0.55;
+const EMBEDDING_PREFILTER_THRESHOLD = 0.50;
+const EMBEDDING_STRICT_THRESHOLD = 0.38;
 const AI_MATCH_CONFIDENCE_THRESHOLD = 75;
 const EMBEDDING_DIM = 128;
 
@@ -204,12 +204,12 @@ describe("═══ Core Math: Distance & Normalization ═══", () => {
 });
 
 describe("═══ Threshold Configuration ═══", () => {
-  it("pre-filter threshold is 0.75 (lenient)", () => {
-    expect(EMBEDDING_PREFILTER_THRESHOLD).toBe(0.75);
+  it("pre-filter threshold is 0.50", () => {
+    expect(EMBEDDING_PREFILTER_THRESHOLD).toBe(0.50);
   });
 
-  it("strict threshold is 0.55 (tight for embedding-only)", () => {
-    expect(EMBEDDING_STRICT_THRESHOLD).toBe(0.55);
+  it("strict threshold is 0.38 (tight for embedding-only)", () => {
+    expect(EMBEDDING_STRICT_THRESHOLD).toBe(0.38);
   });
 
   it("AI confidence threshold is 75%", () => {
@@ -360,7 +360,7 @@ describe("═══ Dual-Layer Decision Matrix ═══", () => {
   const person = randomDescriptor();
   const enrolled = averageDescriptors([noisyVariant(person, 0.02), noisyVariant(person, 0.02), noisyVariant(person, 0.02)]);
 
-  it("distance > 0.75 → REJECTED regardless of AI", () => {
+  it("distance > 0.50 → REJECTED regardless of AI", () => {
     const farProbe = randomDescriptor();
     const result = simulateVerification({
       storedEmbedding: enrolled,
@@ -376,7 +376,7 @@ describe("═══ Dual-Layer Decision Matrix ═══", () => {
     expect(result.layer).toBe("prefilter-rejected");
   });
 
-  it("distance < 0.75 + AI confirms (≥75%) → VERIFIED", () => {
+  it("distance < 0.50 + AI confirms (≥75%) → VERIFIED", () => {
     const closeProbe = noisyVariant(person, 0.04);
     const result = simulateVerification({
       storedEmbedding: enrolled,
@@ -391,7 +391,7 @@ describe("═══ Dual-Layer Decision Matrix ═══", () => {
     expect(result.verified).toBe(true);
   });
 
-  it("distance < 0.75 + AI rejects (<75%) → REJECTED", () => {
+  it("distance < 0.50 + AI rejects (<75%) → REJECTED", () => {
     const closeProbe = noisyVariant(person, 0.04);
     const result = simulateVerification({
       storedEmbedding: enrolled,
@@ -407,7 +407,7 @@ describe("═══ Dual-Layer Decision Matrix ═══", () => {
     expect(result.layer).toBe("ai-rejected");
   });
 
-  it("distance < 0.75 + AI says same_person but low confidence (60%) → REJECTED", () => {
+  it("distance < 0.50 + AI says same_person but low confidence (60%) → REJECTED", () => {
     const closeProbe = noisyVariant(person, 0.04);
     const result = simulateVerification({
       storedEmbedding: enrolled,
@@ -422,7 +422,7 @@ describe("═══ Dual-Layer Decision Matrix ═══", () => {
     expect(result.verified).toBe(false);
   });
 
-  it("distance < 0.55, no AI → VERIFIED (strict fallback)", () => {
+  it("distance < 0.38, no AI → VERIFIED (strict fallback)", () => {
     const closeProbe = noisyVariant(person, 0.015);
     const result = simulateVerification({
       storedEmbedding: enrolled,
@@ -436,7 +436,7 @@ describe("═══ Dual-Layer Decision Matrix ═══", () => {
     expect(result.layer).toBe("strict-embedding-fallback");
   });
 
-  it("distance 0.55–0.75, no AI, no ref image → REJECTED (gray zone protection)", () => {
+  it("distance 0.38–0.50, no AI, no ref image → REJECTED (gray zone protection)", () => {
     const baseVec = normalizeL2(person);
     const perturbation = Array.from({ length: EMBEDDING_DIM }, () => (Math.random() - 0.5) * 0.006);
     const grayProbe = baseVec.map((v, i) => v + perturbation[i]);
@@ -651,11 +651,11 @@ describe("═══ Accuracy Improvement vs Old System ═══", () => {
     expect(newAccepted).toBe(false);
   });
 
-  it("improvement summary: strict threshold 27% tighter than old", () => {
+  it("improvement summary: strict threshold 49% tighter than old", () => {
     const improvement = ((OLD_THRESHOLD - EMBEDDING_STRICT_THRESHOLD) / OLD_THRESHOLD) * 100;
-    logResult("Threshold improvement", improvement > 25,
+    logResult("Threshold improvement", improvement > 40,
       `${OLD_THRESHOLD} → ${EMBEDDING_STRICT_THRESHOLD} = ${improvement.toFixed(1)}% tighter`);
-    expect(improvement).toBeGreaterThan(25);
+    expect(improvement).toBeGreaterThan(40);
   });
 });
 

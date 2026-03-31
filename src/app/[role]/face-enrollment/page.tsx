@@ -1,15 +1,20 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth.store";
-import { loadFaceModels, detectFace, averageDescriptors } from "@/lib/face-api";
+import { useEmployeesStore } from "@/store/employees.store";
+import { useProjectsStore } from "@/store/projects.store";
+import { loadFaceModels, detectFace, detectFaceQuick, averageDescriptors, descriptorConsistency } from "@/lib/face-api";
+import type { FaceTrackingResult } from "@/lib/face-api";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
     ScanFace, Camera, CheckCircle, XCircle, Loader2, RotateCcw,
-    ChevronRight, ShieldCheck, Trash2, Sun, Smartphone, AlertTriangle,
+    ChevronRight, ShieldCheck, Trash2, Sun, AlertTriangle,
+    ArrowLeft, ArrowRight, Eye,
 } from "lucide-react";
 
 /**
@@ -34,7 +39,7 @@ const STEPS = [
     { label: "Right", instruction: "Turn your head slightly right" },
 ] as const;
 
-type EnrollState = "loading-models" | "checking" | "idle" | "starting-camera" | "camera" | "countdown" | "detecting" | "captured" | "enrolling" | "done" | "error";
+type EnrollState = "loading-models" | "checking" | "idle" | "starting-camera" | "camera" | "detecting" | "captured" | "enrolling" | "done" | "error";
 
 /** Detect if running on a mobile/tablet device */
 function isMobileDevice(): boolean {
@@ -55,13 +60,34 @@ async function requestWakeLock(): Promise<WakeLockSentinel | null> {
 
 export default function FaceEnrollmentPage() {
     const currentUser = useAuthStore((s) => s.currentUser);
-    const employeeId = currentUser.id || "";
+    const employees = useEmployeesStore((s) => s.employees);
+    const getProjectForEmployee = useProjectsStore((s) => s.getProjectForEmployee);
+    const router = useRouter();
+
+    // Resolve the actual employee ID (e.g. "EMP026") from the auth profile
+    const myEmployee = employees.find(
+        (e) => e.profileId === currentUser.id || e.email === currentUser.email || e.name === currentUser.name
+    );
+    const employeeId = myEmployee?.id || currentUser.id || "";
+    const myProject = myEmployee ? getProjectForEmployee(myEmployee.id) : undefined;
+
+    // Admin should not access face enrollment — redirect to dashboard
+    // Also redirect if employee is not assigned to a face recognition project
+    useEffect(() => {
+        if (currentUser.role === "admin") {
+            router.replace(`/admin`);
+            return;
+        }
+        // Only show if employee is assigned to a face-related project
+        if (myProject && myProject.verificationMethod !== "face_only") {
+            router.replace(`/${currentUser.role}/attendance`);
+        }
+    }, [currentUser.role, router, myProject]);
 
     const [step, setStep] = useState(0);
     const [state, setState] = useState<EnrollState>("loading-models");
     const [descriptors, setDescriptors] = useState<number[][]>([]);
     const [previews, setPreviews] = useState<string[]>([]);
-    const [countdown, setCountdown] = useState(3);
     const [error, setError] = useState("");
     const [errorHint, setErrorHint] = useState("");
     const [enrolled, setEnrolled] = useState(false);
@@ -72,6 +98,15 @@ export default function FaceEnrollmentPage() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+
+    // ── Live face tracking state ──
+    const [tracking, setTracking] = useState<FaceTrackingResult | null>(null);
+    const [guidanceMsg, setGuidanceMsg] = useState("");
+    const [guidanceColor, setGuidanceColor] = useState<"red" | "amber" | "green">("red");
+    const [captureProgress, setCaptureProgress] = useState(0);
+    const trackingRef = useRef(true);
+    const stableCountRef = useRef(0);
+    const autoCaptureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Clean up camera + wake lock
     const stopCamera = useCallback(() => {
@@ -84,6 +119,7 @@ export default function FaceEnrollmentPage() {
     // Load models + check enrollment status
     useEffect(() => {
         let cancelled = false;
+        console.log(`[face-enroll] Init: employeeId=${employeeId} role=${currentUser.role}`);
         (async () => {
             try {
                 await loadFaceModels();
@@ -92,6 +128,7 @@ export default function FaceEnrollmentPage() {
                 const res = await fetch(`/api/face-recognition/enroll?action=status&employeeId=${encodeURIComponent(employeeId)}`);
                 if (!cancelled && res.ok) {
                     const data = await res.json();
+                    console.log(`[face-enroll] Enrollment status:`, data);
                     if (data.enrolled) {
                         setEnrolled(true);
                         setEnrolledAt(data.enrolledAt || null);
@@ -121,6 +158,10 @@ export default function FaceEnrollmentPage() {
         setError("");
         setErrorHint("");
         setState("starting-camera");
+        setTracking(null);
+        setGuidanceMsg("");
+        setCaptureProgress(0);
+        stableCountRef.current = 0;
 
         try {
             wakeLockRef.current = await requestWakeLock();
@@ -169,8 +210,156 @@ export default function FaceEnrollmentPage() {
         }
     }, [isMobile]);
 
+    // ── Live face tracking loop ──
+    // Runs continuously while camera is active, providing real-time guidance
+    useEffect(() => {
+        if (state !== "camera" || !videoReady || !videoRef.current) {
+            trackingRef.current = false;
+            return;
+        }
+
+        trackingRef.current = true;
+        let rafId: number;
+        let lastTrackTime = 0;
+        let trackFrameCount = 0;
+        const TRACK_INTERVAL = 250; // ms between tracking calls
+        console.log(`[face-enroll] Tracking loop STARTED (step=${step}, state=${state}, videoReady=${videoReady})`);
+
+        // Determine expected yaw range for current step
+        // face-api works on raw (un-mirrored) video from front-facing camera:
+        //   User turns physically LEFT  → nose moves right in raw frame → positive yaw
+        //   User turns physically RIGHT → nose moves left in raw frame  → negative yaw
+        const getExpectedYaw = (): { min: number; max: number; label: string } => {
+            switch (step) {
+                case 0: return { min: -0.20, max: 0.20, label: "Look straight ahead" };
+                case 1: return { min: 0.12, max: 0.55, label: "Turn your head left" };
+                case 2: return { min: -0.55, max: -0.12, label: "Turn your head right" };
+                default: return { min: -0.20, max: 0.20, label: "Look straight ahead" };
+            }
+        };
+
+        const trackLoop = async (timestamp: number) => {
+            if (!trackingRef.current || !videoRef.current) return;
+
+            if (timestamp - lastTrackTime >= TRACK_INTERVAL) {
+                lastTrackTime = timestamp;
+
+                try {
+                    const result = await detectFaceQuick(videoRef.current);
+                    if (!trackingRef.current) return;
+
+                    setTracking(result);
+                    trackFrameCount++;
+
+                    // Log every 4th frame to avoid console spam
+                    if (trackFrameCount % 4 === 1) {
+                        console.log(`[face-enroll] Track #${trackFrameCount} (step=${step}): ${result ? `score=${result.score.toFixed(2)} yaw=${result.yaw.toFixed(2)} faces=${result.faceCount} ratio=${(result.box.width / (videoRef.current?.videoWidth || 640)).toFixed(2)}` : "no face"} stable=${stableCountRef.current} guidance=${guidanceColor}`);
+                    }
+
+                    if (!result) {
+                        setGuidanceMsg("No face detected — look at the camera");
+                        setGuidanceColor("red");
+                        stableCountRef.current = 0;
+                    } else if (result.faceCount > 1) {
+                        setGuidanceMsg("Multiple faces detected — only one person please");
+                        setGuidanceColor("red");
+                        stableCountRef.current = 0;
+                    } else if (result.score < 0.55) {
+                        setGuidanceMsg("Face unclear — improve lighting");
+                        setGuidanceColor("amber");
+                        stableCountRef.current = 0;
+                    } else {
+                        // Check face size relative to video dimensions
+                        const videoW = videoRef.current?.videoWidth || 640;
+                        const faceRatio = result.box.width / videoW;
+
+                        if (faceRatio < 0.15) {
+                            setGuidanceMsg("Move closer to the camera");
+                            setGuidanceColor("amber");
+                            stableCountRef.current = 0;
+                        } else if (faceRatio > 0.55) {
+                            setGuidanceMsg("Move back a little");
+                            setGuidanceColor("amber");
+                            stableCountRef.current = 0;
+                        } else {
+                            // Check head direction for current step
+                            const expected = getExpectedYaw();
+                            const yaw = result.yaw;
+
+                            if (yaw < expected.min) {
+                                // Yaw too negative = user turned too far RIGHT
+                                const msg = step === 0 ? "Turn your head slightly left" :
+                                            step === 2 ? "Good — hold still" : "Turn your head left";
+                                setGuidanceMsg(msg);
+                                setGuidanceColor("amber");
+                                stableCountRef.current = 0;
+                            } else if (yaw > expected.max) {
+                                // Yaw too positive = user turned too far LEFT
+                                const msg = step === 0 ? "Turn your head slightly right" :
+                                            step === 1 ? "Good — hold still" : "Turn your head right";
+                                setGuidanceMsg(msg);
+                                setGuidanceColor("amber");
+                                stableCountRef.current = 0;
+                            } else {
+                                // Face is in the correct position!
+                                stableCountRef.current += 1;
+                                const stableNeeded = 5; // ~1.25s at 250ms intervals
+
+                                if (stableCountRef.current >= stableNeeded) {
+                                    setGuidanceMsg("Perfect! Capturing...");
+                                    setGuidanceColor("green");
+                                } else {
+                                    setGuidanceMsg(`Great position — hold still (${Math.round((stableCountRef.current / stableNeeded) * 100)}%)`);
+                                    setGuidanceColor("green");
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    // Tracking error — non-critical, skip frame
+                }
+            }
+
+            if (trackingRef.current) {
+                rafId = requestAnimationFrame(trackLoop);
+            }
+        };
+
+        rafId = requestAnimationFrame(trackLoop);
+
+        return () => {
+            console.log(`[face-enroll] Tracking loop STOPPED (frames tracked: ${trackFrameCount})`);
+            trackingRef.current = false;
+            cancelAnimationFrame(rafId);
+        };
+    }, [state, videoReady, step]);
+
+    // ── Auto-capture when face is stable for long enough ──
+    useEffect(() => {
+        if (state !== "camera" || !videoReady) return;
+
+        if (stableCountRef.current >= 5 && guidanceColor === "green" && guidanceMsg.includes("Capturing")) {
+            if (!autoCaptureTimerRef.current) {
+                autoCaptureTimerRef.current = setTimeout(() => {
+                    autoCaptureTimerRef.current = null;
+                    if (state === "camera") {
+                        captureAndDetect();
+                    }
+                }, 400);
+            }
+        } else {
+            if (autoCaptureTimerRef.current) {
+                clearTimeout(autoCaptureTimerRef.current);
+                autoCaptureTimerRef.current = null;
+            }
+        }
+    }, [guidanceColor, guidanceMsg, state, videoReady]);
+
     const captureAndDetect = useCallback(async () => {
         setState("detecting");
+        trackingRef.current = false;
+        stableCountRef.current = 0;
+        setCaptureProgress(0);
         const video = videoRef.current;
         const canvas = canvasRef.current;
 
@@ -185,33 +374,64 @@ export default function FaceEnrollmentPage() {
         canvas.height = video.videoHeight;
         const ctx = canvas.getContext("2d");
 
-        // Multi-frame detection: capture up to 5 frames, average the best ones.
-        // More frames and averaging produce a more stable enrollment embedding
-        // that matches verification embeddings more reliably across sessions.
+        // Multi-frame detection: capture up to 8 frames, keep high-quality ones.
+        // Enrollment quality must be >= verification quality — enrollment is the
+        // reference that all future verifications compare against.
         const allDetections: { descriptor: number[]; score: number }[] = [];
-        const MAX_ATTEMPTS = 5;
+        const MAX_ATTEMPTS = 8;
+        const MIN_GOOD_FRAMES = 3;
+        const MIN_DETECTION_SCORE = 0.70;
+        const MAX_CONSISTENCY_DISTANCE = 0.35;
+
+        console.log(`[face-enroll] Capturing ${STEPS[step].label} angle...`);
 
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             if (ctx) ctx.drawImage(video, 0, 0);
             const result = await detectFace(canvas);
-            if (result && result.score >= 0.6) {
-                allDetections.push({ descriptor: result.descriptor, score: result.score });
+            if (result) {
+                console.log(`[face-enroll] Frame ${attempt + 1}: score=${result.score.toFixed(3)} ${result.score >= MIN_DETECTION_SCORE ? "✓" : "✗"}`);
+                if (result.score >= MIN_DETECTION_SCORE) {
+                    allDetections.push({ descriptor: result.descriptor, score: result.score });
+                }
+            } else {
+                console.log(`[face-enroll] Frame ${attempt + 1}: no face detected`);
             }
-            // Brief delay before next attempt to get a different frame
+            setCaptureProgress(Math.round(((attempt + 1) / MAX_ATTEMPTS) * 100));
             if (attempt < MAX_ATTEMPTS - 1) {
                 await new Promise((r) => setTimeout(r, 250));
             }
+            if (allDetections.length >= 6) break;
         }
 
-        // Use the best detection for the preview/toast, but store the averaged descriptor
+        console.log(`[face-enroll] ${STEPS[step].label}: ${allDetections.length}/${MAX_ATTEMPTS} valid frames`);
+
+        // Use the best detection for the preview/toast
         const best = allDetections.length > 0
             ? allDetections.reduce((a, b) => a.score > b.score ? a : b)
             : null;
 
-        if (!best || allDetections.length === 0) {
-            toast.error(isMobile
-                ? "No face detected. Hold phone at arm's length in good lighting."
-                : "No face detected. Position your face clearly and try again.");
+        if (!best || allDetections.length < MIN_GOOD_FRAMES) {
+            console.warn(`[face-enroll] REJECTED: insufficient frames (${allDetections.length} < ${MIN_GOOD_FRAMES})`);
+            toast.error(allDetections.length === 0
+                ? (isMobile
+                    ? "No face detected. Hold phone at arm's length in good lighting."
+                    : "No face detected. Position your face clearly and try again.")
+                : `Only ${allDetections.length} good frame(s). Hold steady with better lighting.`);
+            setState("camera");
+            return;
+        }
+
+        // Sort by quality and take top frames
+        allDetections.sort((a, b) => b.score - a.score);
+        const topDescriptors = allDetections.slice(0, 5).map(d => d.descriptor);
+
+        // Consistency check: reject if frames are too different (movement/jitter)
+        const consistency = descriptorConsistency(topDescriptors);
+        console.log(`[face-enroll] ${STEPS[step].label} consistency: ${consistency.toFixed(4)} (max: ${MAX_CONSISTENCY_DISTANCE})`);
+
+        if (consistency > MAX_CONSISTENCY_DISTANCE) {
+            console.warn(`[face-enroll] REJECTED: inconsistent frames (${consistency.toFixed(4)})`);
+            toast.error("Face detection unstable. Hold still and try again.");
             setState("camera");
             return;
         }
@@ -220,42 +440,36 @@ export default function FaceEnrollmentPage() {
         if (ctx) ctx.drawImage(video, 0, 0);
         const previewUrl = canvas.toDataURL("image/jpeg", 0.85);
 
-        // Average all detections from this angle for a more stable per-angle descriptor
-        const angleAvg = allDetections.length > 1
-            ? averageDescriptors(allDetections.map(d => d.descriptor))
+        // Average top detections for a stable per-angle descriptor
+        const angleAvg = topDescriptors.length > 1
+            ? averageDescriptors(topDescriptors)
             : best.descriptor;
+
+        const embNorm = Math.sqrt(angleAvg.reduce((s, v) => s + v * v, 0));
+        console.log(`[face-enroll] ${STEPS[step].label} embedding: norm=${embNorm.toFixed(4)}, frames=${topDescriptors.length}, bestScore=${best.score.toFixed(3)}`);
 
         setDescriptors((prev) => [...prev, angleAvg]);
         setPreviews((prev) => [...prev, previewUrl]);
         setState("captured");
-        toast.success(`Face detected (confidence: ${(best.score * 100).toFixed(0)}%, ${allDetections.length} frames averaged)`);
-    }, [isMobile]);
-
-    const beginCapture = useCallback(() => {
-        if (!videoReady) return;
-        setState("countdown");
-        setCountdown(3);
-        let c = 3;
-        const interval = setInterval(() => {
-            c -= 1;
-            setCountdown(c);
-            if (c <= 0) {
-                clearInterval(interval);
-                captureAndDetect();
-            }
-        }, 1000);
-    }, [captureAndDetect, videoReady]);
+        toast.success(`Face detected (confidence: ${(best.score * 100).toFixed(0)}%, ${topDescriptors.length} frames averaged)`);
+    }, [isMobile, step]);
 
     const handleRetake = useCallback(() => {
         setDescriptors((prev) => prev.slice(0, -1));
         setPreviews((prev) => prev.slice(0, -1));
         setState("camera");
+        stableCountRef.current = 0;
+        setTracking(null);
+        setGuidanceMsg("");
+        setGuidanceColor("red");
+        setCaptureProgress(0);
     }, []);
 
     const handleEnroll = useCallback(async () => {
         setState("enrolling");
         setError("");
         setErrorHint("");
+        console.log(`[face-enroll] Starting enrollment: employeeId=${employeeId} angles=${descriptors.length} hasPreview=${previews.length > 0}`);
         try {
             const avgEmbedding = averageDescriptors(descriptors);
             if (avgEmbedding.length !== 128) {
@@ -263,6 +477,9 @@ export default function FaceEnrollmentPage() {
                 setState("error");
                 return;
             }
+
+            const embNorm = Math.sqrt(avgEmbedding.reduce((s, v) => s + v * v, 0));
+            console.log(`[face-enroll] Final enrollment embedding: norm=${embNorm.toFixed(4)}, angles=${descriptors.length}`);
 
             const res = await fetch("/api/face-recognition/enroll?action=enroll", {
                 method: "POST",
@@ -273,6 +490,7 @@ export default function FaceEnrollmentPage() {
                 body: JSON.stringify({ employeeId, embedding: avgEmbedding, referenceImage: previews[0] }),
             });
             const data = await res.json();
+            console.log(`[face-enroll] Enroll response: status=${res.status}`, data);
             if (!res.ok || !data.ok) {
                 setError(data.error || "Enrollment failed.");
                 setState("error");
@@ -295,6 +513,11 @@ export default function FaceEnrollmentPage() {
         if (step < 2) {
             setStep((s) => s + 1);
             setState("camera");
+            stableCountRef.current = 0;
+            setTracking(null);
+            setGuidanceMsg("");
+            setGuidanceColor("red");
+            setCaptureProgress(0);
         } else {
             handleEnroll();
         }
@@ -326,10 +549,23 @@ export default function FaceEnrollmentPage() {
         setState("idle");
         setError("");
         setErrorHint("");
+        setTracking(null);
+        setGuidanceMsg("");
+        setGuidanceColor("red");
+        setCaptureProgress(0);
+        stableCountRef.current = 0;
         stopCamera();
     }, [stopCamera]);
 
     const currentStepData = STEPS[step];
+
+    // Don't render for admin users or non-face-project employees (redirect is in progress)
+    if (currentUser.role === "admin") {
+        return null;
+    }
+    if (myProject && myProject.verificationMethod !== "face_only") {
+        return null;
+    }
 
     return (
         <div className="space-y-4 sm:space-y-6 max-w-2xl mx-auto px-1">
@@ -446,39 +682,76 @@ export default function FaceEnrollmentPage() {
               Keeping this mounted at all times means videoRef never loses the stream
               when React transitions between "starting-camera" → "camera" states.
             */}
-            <div className={state === "camera" || state === "countdown" || state === "detecting" ? "" : "hidden"}>
+            <div className={state === "camera" || state === "detecting" ? "" : "hidden"}>
                 <Card className="overflow-hidden">
                     <CardContent className="p-0">
                         <canvas ref={canvasRef} className="hidden" />
                         {/* Responsive camera: portrait on mobile, landscape on desktop */}
                         <div className="relative w-full bg-black aspect-[3/4] sm:aspect-[4/3] max-h-[55vh] sm:max-h-[380px]">
                             <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" style={{ transform: "scaleX(-1)" }} />
-                            {/* Responsive face oval guide */}
+
+                            {/* Face oval guide — color changes based on tracking */}
                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                <div className={`w-[40%] max-w-[160px] aspect-[3/4] rounded-full border-2 transition-colors duration-300 ${
-                                    state === "countdown" ? "border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.3)]" :
-                                    state === "detecting" ? "border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.3)]" : "border-white/50"
+                                <div className={`w-[40%] max-w-[160px] aspect-[3/4] rounded-full border-2 transition-all duration-300 ${
+                                    state === "detecting" ? "border-blue-400 shadow-[0_0_20px_rgba(96,165,250,0.4)]" :
+                                    guidanceColor === "green" ? "border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.3)]" :
+                                    guidanceColor === "amber" ? "border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.2)]" :
+                                    tracking ? "border-red-400 shadow-[0_0_15px_rgba(248,113,113,0.2)]" : "border-white/50"
                                 }`} />
                             </div>
-                            {state === "countdown" && (
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <span className="text-5xl sm:text-6xl font-bold text-white drop-shadow-lg">{countdown}</span>
-                                </div>
-                            )}
-                            {state === "detecting" && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                                    <Loader2 className="h-9 w-9 sm:h-10 sm:w-10 text-white animate-spin" />
-                                </div>
-                            )}
-                            {/* Mobile hint */}
-                            {isMobile && state === "camera" && (
-                                <div className="absolute top-3 left-0 right-0 flex justify-center">
-                                    <div className="bg-black/60 backdrop-blur-sm rounded-full px-3 py-1 flex items-center gap-1.5">
-                                        <Smartphone className="h-3 w-3 text-white/70" />
-                                        <span className="text-white/80 text-[10px]">Hold at arm&apos;s length</span>
+
+                            {/* Direction arrow overlay for left/right steps */}
+                            {/* Display is mirrored (scaleX(-1)), so user's left = screen right */}
+                            {state === "camera" && step === 1 && guidanceColor !== "green" && (
+                                <div className="absolute inset-0 flex items-center justify-end pointer-events-none">
+                                    <div className="mr-4 sm:mr-8 flex flex-col items-center gap-1 animate-pulse">
+                                        <ArrowLeft className="h-8 w-8 sm:h-10 sm:w-10 text-amber-400 drop-shadow-lg" />
+                                        <span className="text-[10px] text-amber-300 font-semibold drop-shadow">Turn left</span>
                                     </div>
                                 </div>
                             )}
+                            {state === "camera" && step === 2 && guidanceColor !== "green" && (
+                                <div className="absolute inset-0 flex items-center pointer-events-none">
+                                    <div className="ml-4 sm:ml-8 flex flex-col items-center gap-1 animate-pulse">
+                                        <ArrowRight className="h-8 w-8 sm:h-10 sm:w-10 text-amber-400 drop-shadow-lg" />
+                                        <span className="text-[10px] text-amber-300 font-semibold drop-shadow">Turn right</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Live guidance message banner */}
+                            {state === "camera" && guidanceMsg && (
+                                <div className="absolute top-3 left-0 right-0 flex justify-center">
+                                    <div className={`backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5 max-w-[90%] ${
+                                        guidanceColor === "green" ? "bg-emerald-900/70" :
+                                        guidanceColor === "amber" ? "bg-amber-900/70" : "bg-red-900/70"
+                                    }`}>
+                                        {guidanceColor === "green" ? <CheckCircle className="h-3 w-3 text-emerald-400 shrink-0" /> :
+                                         guidanceColor === "amber" ? <Eye className="h-3 w-3 text-amber-400 shrink-0" /> :
+                                         <AlertTriangle className="h-3 w-3 text-red-400 shrink-0" />}
+                                        <span className={`text-[11px] font-medium ${
+                                            guidanceColor === "green" ? "text-emerald-300" :
+                                            guidanceColor === "amber" ? "text-amber-300" : "text-red-300"
+                                        }`}>{guidanceMsg}</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Detecting overlay with progress */}
+                            {state === "detecting" && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 gap-3">
+                                    <Loader2 className="h-9 w-9 sm:h-10 sm:w-10 text-white animate-spin" />
+                                    <div className="w-32 sm:w-40 h-1.5 bg-white/20 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-blue-400 rounded-full transition-all duration-200"
+                                            style={{ width: `${captureProgress}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-white/80 text-xs">Capturing frames... {captureProgress}%</p>
+                                </div>
+                            )}
+
+                            {/* Step instruction badge */}
                             <div className="absolute bottom-3 left-0 right-0 flex justify-center">
                                 <Badge variant="secondary" className="bg-black/60 text-white border-0 px-3 py-1">
                                     Step {step + 1}/3: {currentStepData.instruction}
@@ -487,19 +760,24 @@ export default function FaceEnrollmentPage() {
                         </div>
                         <div className="p-3 sm:p-4 flex flex-col items-center gap-2">
                             {state === "camera" && (
-                                <Button
-                                    onClick={beginCapture}
-                                    className="gap-2 w-full min-h-[48px] text-base sm:text-sm sm:min-h-[40px]"
-                                    disabled={!videoReady}
-                                >
-                                    <Camera className="h-5 w-5 sm:h-4 sm:w-4" />
-                                    {videoReady ? `Capture ${currentStepData.label}` : "Preparing camera..."}
-                                </Button>
-                            )}
-                            {isMobile && state === "camera" && (
-                                <p className="text-[10px] text-muted-foreground text-center">
-                                    Ensure good lighting and look directly at the camera
-                                </p>
+                                <>
+                                    <Button
+                                        onClick={captureAndDetect}
+                                        className="gap-2 w-full min-h-[48px] text-base sm:text-sm sm:min-h-[40px]"
+                                        disabled={!videoReady || guidanceColor === "red"}
+                                    >
+                                        <Camera className="h-5 w-5 sm:h-4 sm:w-4" />
+                                        {!videoReady ? "Preparing camera..." :
+                                         guidanceColor === "red" ? "Position your face first" :
+                                         guidanceColor === "green" ? `Capture ${currentStepData.label} ✓` :
+                                         `Capture ${currentStepData.label}`}
+                                    </Button>
+                                    <p className="text-[10px] text-muted-foreground text-center">
+                                        {guidanceColor === "green"
+                                            ? "Auto-capture will trigger when you hold still — or tap the button"
+                                            : "Follow the on-screen guidance to position your face correctly"}
+                                    </p>
+                                </>
                             )}
                         </div>
                     </CardContent>

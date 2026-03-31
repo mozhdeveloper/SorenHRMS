@@ -75,7 +75,6 @@ export async function POST(request: NextRequest) {
         const validMethods: VerificationMethod[] = [
             "face_only",
             "qr_only",
-            "face_or_qr",
             "manual_only"
         ];
 

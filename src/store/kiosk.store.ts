@@ -4,7 +4,7 @@ import { persist } from "zustand/middleware";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type KioskCheckInMethod = "pin" | "qr" | "face" | "nfc" | "all";
-export type KioskTheme = "dark" | "midnight" | "charcoal";
+export type KioskTheme = "auto" | "dark" | "midnight" | "charcoal";
 export type KioskClockFormat = "12h" | "24h";
 export type KioskIdleAction = "none" | "screensaver" | "dim";
 
@@ -98,7 +98,7 @@ const DEFAULT_SETTINGS: KioskSettings = {
 
   nfcSimulatedDelay: 1500,
 
-  kioskTheme: "dark",
+  kioskTheme: "auto",
   clockFormat: "24h",
   showClock: true,
   showDate: true,

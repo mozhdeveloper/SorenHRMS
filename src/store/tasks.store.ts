@@ -7,6 +7,7 @@ import type {
     Task,
     TaskCompletionReport,
     TaskComment,
+    TaskTag,
     TaskStatus,
 } from "@/types";
 import {
@@ -23,6 +24,7 @@ interface TasksState {
     tasks: Task[];
     completionReports: TaskCompletionReport[];
     comments: TaskComment[];
+    taskTags: TaskTag[];
 
     // ── Groups ────────────────────────────────────────────────
     addGroup: (data: Omit<TaskGroup, "id" | "createdAt">) => string;
@@ -30,7 +32,7 @@ interface TasksState {
     deleteGroup: (id: string) => void;
 
     // ── Tasks ─────────────────────────────────────────────────
-    addTask: (data: Omit<Task, "id" | "createdAt" | "updatedAt">) => string;
+    addTask: (data: Omit<Task, "id" | "createdAt" | "updatedAt"> & { id?: string }) => string;
     updateTask: (id: string, patch: Partial<Omit<Task, "id">>) => void;
     deleteTask: (id: string) => void;
     changeStatus: (id: string, status: TaskStatus) => void;
@@ -42,6 +44,11 @@ interface TasksState {
 
     // ── Comments ──────────────────────────────────────────────
     addComment: (data: Omit<TaskComment, "id" | "createdAt">) => string;
+
+    // ── Tags ──────────────────────────────────────────────────
+    addTag: (data: Omit<TaskTag, "id" | "createdAt">) => string;
+    updateTag: (id: string, patch: Partial<Omit<TaskTag, "id" | "createdAt">>) => void;
+    deleteTag: (id: string) => void;
 
     // ── Selectors ─────────────────────────────────────────────
     getTasksByGroup: (groupId: string) => Task[];
@@ -63,6 +70,7 @@ export const useTasksStore = create<TasksState>()(
             tasks: SEED_TASKS,
             completionReports: SEED_COMPLETION_REPORTS,
             comments: SEED_TASK_COMMENTS,
+            taskTags: [],
 
             // ── Groups ────────────────────────────────────────
             addGroup: (data) => {
@@ -89,12 +97,14 @@ export const useTasksStore = create<TasksState>()(
 
             // ── Tasks ─────────────────────────────────────────
             addTask: (data) => {
-                const id = `TSK-${nanoid(6)}`;
+                const id = data.id?.trim() || `TSK-${nanoid(6)}`;
+                const { id: _id, ...rest } = data as typeof data & { id?: string };
+                void _id;
                 const now = new Date().toISOString();
                 set((s) => ({
                     tasks: [
                         ...s.tasks,
-                        { ...data, id, createdAt: now, updatedAt: now },
+                        { ...rest, id, createdAt: now, updatedAt: now },
                     ],
                 }));
                 useAuditStore.getState().log({
@@ -242,6 +252,35 @@ export const useTasksStore = create<TasksState>()(
                 return id;
             },
 
+            // ── Tags ──────────────────────────────────────────
+            addTag: (data) => {
+                const id = `TAG-${nanoid(6)}`;
+                set((s) => ({
+                    taskTags: [
+                        ...s.taskTags,
+                        { ...data, id, createdAt: new Date().toISOString() },
+                    ],
+                }));
+                useAuditStore.getState().log({
+                    entityType: "task",
+                    entityId: id,
+                    action: "tag_created",
+                    performedBy: data.createdBy,
+                    afterSnapshot: { name: data.name, color: data.color },
+                });
+                return id;
+            },
+            updateTag: (id, patch) =>
+                set((s) => ({
+                    taskTags: s.taskTags.map((t) =>
+                        t.id === id ? { ...t, ...patch } : t
+                    ),
+                })),
+            deleteTag: (id) =>
+                set((s) => ({
+                    taskTags: s.taskTags.filter((t) => t.id !== id),
+                })),
+
             // ── Selectors ─────────────────────────────────────
             getTasksByGroup: (groupId) =>
                 get().tasks.filter((t) => t.groupId === groupId),
@@ -280,6 +319,7 @@ export const useTasksStore = create<TasksState>()(
                     tasks: SEED_TASKS,
                     completionReports: SEED_COMPLETION_REPORTS,
                     comments: SEED_TASK_COMMENTS,
+                    taskTags: [],
                 }),
         }),
         { name: "nexhrms-tasks", version: 1 }

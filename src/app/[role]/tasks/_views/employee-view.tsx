@@ -1,19 +1,21 @@
 "use client";
 
-import { useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useTasksStore } from "@/store/tasks.store";
 import { useEmployeesStore } from "@/store/employees.store";
 import { useAuthStore } from "@/store/auth.store";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getInitials, formatDate } from "@/lib/format";
 import { useRoleHref } from "@/lib/hooks/use-role-href";
 import Link from "next/link";
 import {
     ListTodo, CheckCircle2, ArrowUpRight, Eye,
-    AlertTriangle, Camera, ChevronRight,
+    AlertTriangle, Camera, ChevronRight, Search,
 } from "lucide-react";
 import type { Task, TaskStatus, TaskPriority, TaskCompletionReport } from "@/types";
 
@@ -119,6 +121,7 @@ export default function EmployeeTasksView() {
     const employees = useEmployeesStore((s) => s.employees);
     const currentUser = useAuthStore((s) => s.currentUser);
     const roleHref = useRoleHref();
+    const [search, setSearch] = useState("");
 
     // Resolve the HR employee record by email so tasks assigned to "EMP026"
     // are found even though the DemoUser id is "U004".
@@ -132,9 +135,24 @@ export default function EmployeeTasksView() {
         [getTasksForEmployee, myEmployeeId],
     );
 
-    const activeTasks = myTasks.filter((t) => ["open", "in_progress", "rejected"].includes(t.status));
-    const pendingReview = myTasks.filter((t) => t.status === "submitted");
-    const completedTasks = myTasks.filter((t) => ["verified", "cancelled"].includes(t.status));
+    const filteredTasks = useMemo(() => {
+        if (!search) return myTasks;
+        const q = search.toLowerCase();
+        return myTasks.filter(
+            (t) => t.title.toLowerCase().includes(q) || t.description.toLowerCase().includes(q),
+        );
+    }, [myTasks, search]);
+
+    const activeTasks = filteredTasks.filter((t) => ["open", "in_progress", "rejected"].includes(t.status));
+    const pendingReview = filteredTasks.filter((t) => t.status === "submitted");
+    const completedTasks = filteredTasks.filter((t) => ["verified", "cancelled"].includes(t.status));
+
+    const completionRate = myTasks.length > 0
+        ? Math.round((myTasks.filter((t) => t.status === "verified").length / myTasks.length) * 100)
+        : 0;
+    const overdueCount = myTasks.filter(
+        (t) => t.dueDate && new Date(t.dueDate) < new Date() && !["verified", "cancelled"].includes(t.status),
+    ).length;
 
     const getEmpName = (id: string) => employees.find((e) => e.id === id)?.name ?? id;
     const getGroupName = (id: string) => groups.find((g) => g.id === id)?.name ?? id;
@@ -153,7 +171,7 @@ export default function EmployeeTasksView() {
                     { label: "Active", value: activeTasks.length, icon: ArrowUpRight, color: "text-yellow-600" },
                     { label: "Review", value: pendingReview.length, icon: Eye, color: "text-purple-600" },
                     { label: "Done", value: completedTasks.length, icon: CheckCircle2, color: "text-green-600" },
-                    { label: "Total", value: myTasks.length, icon: ListTodo, color: "text-foreground" },
+                    { label: "Overdue", value: overdueCount, icon: AlertTriangle, color: overdueCount > 0 ? "text-red-600" : "text-muted-foreground" },
                 ].map((kpi) => (
                     <Card key={kpi.label} className="border border-border/50">
                         <CardContent className="p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
@@ -165,6 +183,33 @@ export default function EmployeeTasksView() {
                         </CardContent>
                     </Card>
                 ))}
+            </div>
+
+            {/* Progress Bar */}
+            {myTasks.length > 0 && (
+                <Card className="border border-border/50">
+                    <CardContent className="p-3 sm:p-4">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-medium">Completion Progress</span>
+                            <span className="text-xs text-muted-foreground">{completionRate}%</span>
+                        </div>
+                        <Progress value={completionRate} className="h-2" />
+                        <p className="text-[10px] text-muted-foreground mt-1.5">
+                            {myTasks.filter((t) => t.status === "verified").length} of {myTasks.length} tasks verified
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Search */}
+            <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search your tasks..."
+                    className="pl-9"
+                />
             </div>
 
             <Tabs defaultValue="active">

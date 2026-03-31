@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth.store";
+import { useEmployeesStore } from "@/store/employees.store";
 import { useAppearanceStore } from "@/store/appearance.store";
 import { useKioskStore } from "@/store/kiosk.store";
 import { loadFaceModels, detectFace, averageDescriptors } from "@/lib/face-api";
@@ -14,35 +15,41 @@ import {
 } from "lucide-react";
 
 /**
- * Face Enrollment Wizard — 3-step capture with real face-api.js embeddings
+ * Face Enrollment — Front-face capture with multi-frame averaging.
  *
- * Step 1: Front-facing capture → 128-d descriptor
- * Step 2: Left-angle capture → 128-d descriptor
- * Step 3: Right-angle capture → 128-d descriptor
+ * Captures multiple frames of the front face, averages the 128-d descriptors
+ * for a robust embedding, and sends BOTH the embedding AND a reference image
+ * to the server for storage. The reference image enables AI-enhanced matching.
  *
- * All 3 descriptors are averaged into a single robust embedding,
- * then sent to the server for storage (no images leave the browser).
+ * Mobile-optimized: adaptive camera resolution, touch-friendly buttons.
  */
 
-const STEPS = [
-    { label: "Front", instruction: "Look straight at the camera" },
-    { label: "Left", instruction: "Turn your head slightly to the left" },
-    { label: "Right", instruction: "Turn your head slightly to the right" },
-] as const;
+type EnrollState = "loading-models" | "idle" | "camera" | "scanning" | "captured" | "enrolling" | "done" | "error";
 
-type EnrollState = "loading-models" | "idle" | "camera" | "countdown" | "detecting" | "captured" | "enrolling" | "done" | "error";
+/** Detect if the device is mobile based on screen width and touch support. */
+function isMobileDevice(): boolean {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth < 768 || ("ontouchstart" in window);
+}
 
 export default function FaceEnrollPage() {
     const router = useRouter();
     const currentUser = useAuthStore((s) => s.currentUser);
+    const employees = useEmployeesStore((s) => s.employees);
     const companyName = useAppearanceStore((s) => s.companyName);
     const ks = useKioskStore((s) => s.settings);
 
-    const [step, setStep] = useState(0);
+    // Resolve the actual employee ID (e.g. "EMP027") from the auth profile
+    const myEmployee = employees.find(
+        (e) => e.profileId === currentUser.id || e.email === currentUser.email || e.name === currentUser.name
+    );
+    const employeeId = myEmployee?.id || currentUser.id || "";
+
     const [state, setState] = useState<EnrollState>("loading-models");
-    const [descriptors, setDescriptors] = useState<number[][]>([]);
-    const [previews, setPreviews] = useState<string[]>([]);
-    const [countdown, setCountdown] = useState(3);
+    const [descriptor, setDescriptor] = useState<number[] | null>(null);
+    const [referenceImage, setReferenceImage] = useState<string>("");
+    const [previewUrl, setPreviewUrl] = useState<string>("");
+    const [scanProgress, setScanProgress] = useState(0);
     const [error, setError] = useState("");
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -74,17 +81,22 @@ export default function FaceEnrollPage() {
 
     const startCamera = useCallback(async () => {
         try {
+            const mobile = isMobileDevice();
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+                video: {
+                    facingMode: "user",
+                    width: { ideal: mobile ? 480 : 640 },
+                    height: { ideal: mobile ? 640 : 480 },
+                },
             });
             streamRef.current = stream;
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
-                videoRef.current.play();
+                await videoRef.current.play();
             }
             setState("camera");
         } catch {
-            setError("Camera access denied. Please allow camera permission.");
+            setError("Camera access denied. Please allow camera permission and ensure you're on HTTPS.");
             setState("error");
         }
     }, []);
@@ -98,89 +110,106 @@ export default function FaceEnrollPage() {
         return () => stopCamera();
     }, [stopCamera]);
 
-    const captureAndDetect = useCallback(async () => {
-        setState("detecting");
+    /**
+     * Multi-frame scan: capture up to 7 frames, require 3+ good detections,
+     * average top 5 descriptors. Also captures reference image from the best frame.
+     */
+    const handleScan = useCallback(async () => {
+        if (!videoRef.current || !canvasRef.current) return;
+        setState("scanning");
+        setScanProgress(0);
+        console.log(`[kiosk-enroll] Starting multi-frame scan for employeeId=${employeeId}`);
 
-        if (!videoRef.current || !canvasRef.current) {
-            setError("Camera not available");
-            setState("error");
-            return;
+        const validFrames: { descriptor: number[]; score: number }[] = [];
+        const MAX_ATTEMPTS = 7;
+        const MIN_GOOD_FRAMES = 3;
+        let bestScore = 0;
+        let bestImageData = "";
+
+        for (let i = 0; i < MAX_ATTEMPTS; i++) {
+            setScanProgress(Math.round(((i + 1) / MAX_ATTEMPTS) * 100));
+            const result = await detectFace(videoRef.current);
+            if (result && result.score >= 0.65) {
+                console.log(`[kiosk-enroll] Frame ${i + 1}: score=${result.score.toFixed(3)} ✓`);
+                validFrames.push({ descriptor: result.descriptor, score: result.score });
+                // Capture the best-scoring frame as the reference image
+                if (result.score > bestScore) {
+                    bestScore = result.score;
+                    const canvas = canvasRef.current;
+                    canvas.width = videoRef.current.videoWidth;
+                    canvas.height = videoRef.current.videoHeight;
+                    const ctx = canvas.getContext("2d");
+                    if (ctx) {
+                        ctx.drawImage(videoRef.current, 0, 0);
+                        bestImageData = canvas.toDataURL("image/jpeg", 0.8);
+                    }
+                }
+            } else {
+                console.log(`[kiosk-enroll] Frame ${i + 1}: ${result ? `score=${result.score.toFixed(3)} ✗ (below 0.65)` : "no face detected"}`);
+            }
+            if (i < MAX_ATTEMPTS - 1) {
+                await new Promise((r) => setTimeout(r, 350));
+            }
         }
 
-        // Draw current frame to canvas for preview
-        const canvas = canvasRef.current;
-        canvas.width = videoRef.current.videoWidth;
-        canvas.height = videoRef.current.videoHeight;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-            ctx.drawImage(videoRef.current, 0, 0);
-        }
-        const previewUrl = canvas.toDataURL("image/jpeg", 0.85);
-
-        // Detect face and get 128-d descriptor from the VIDEO element
-        const result = await detectFace(videoRef.current);
-
-        if (!result) {
-            toast.error("No face detected. Please position your face clearly and try again.");
+        if (validFrames.length < MIN_GOOD_FRAMES) {
+            console.warn(`[kiosk-enroll] REJECTED: insufficient frames (${validFrames.length} < ${MIN_GOOD_FRAMES})`);
+            toast.error(
+                validFrames.length === 0
+                    ? "No face detected. Position your face in the oval and ensure good lighting."
+                    : `Only ${validFrames.length} good frame(s). Try better lighting or hold still.`
+            );
             setState("camera");
+            setScanProgress(0);
             return;
         }
 
-        if (result.score < 0.7) {
-            toast.error("Low confidence detection. Please improve lighting and try again.");
-            setState("camera");
-            return;
-        }
+        // Average top descriptors for stability
+        validFrames.sort((a, b) => b.score - a.score);
+        const averaged = averageDescriptors(validFrames.slice(0, 5).map((f) => f.descriptor));
+        const embNorm = Math.sqrt(averaged.reduce((s, v) => s + v * v, 0));
+        console.log(`[kiosk-enroll] Averaged embedding: norm=${embNorm.toFixed(4)} frames=${validFrames.length} bestScore=${(bestScore * 100).toFixed(0)}%`);
 
-        // Store descriptor and preview
-        setDescriptors((prev) => [...prev, result.descriptor]);
-        setPreviews((prev) => [...prev, previewUrl]);
+        setDescriptor(averaged);
+        setReferenceImage(bestImageData);
+        setPreviewUrl(bestImageData);
         setState("captured");
-        toast.success(`Face detected (confidence: ${(result.score * 100).toFixed(0)}%)`);
+        toast.success(`Face captured (${validFrames.length} frames, best: ${(bestScore * 100).toFixed(0)}%)`);
     }, []);
 
-    const beginCapture = useCallback(() => {
-        setState("countdown");
-        setCountdown(3);
-        let c = 3;
-        const interval = setInterval(() => {
-            c -= 1;
-            setCountdown(c);
-            if (c <= 0) {
-                clearInterval(interval);
-                captureAndDetect();
-            }
-        }, 1000);
-    }, [captureAndDetect]);
-
     const handleRetake = useCallback(() => {
-        setDescriptors((prev) => prev.slice(0, -1));
-        setPreviews((prev) => prev.slice(0, -1));
+        setDescriptor(null);
+        setReferenceImage("");
+        setPreviewUrl("");
         setState("camera");
     }, []);
 
     const handleEnroll = useCallback(async () => {
+        if (!descriptor || descriptor.length !== 128) {
+            setError("No valid face embedding captured");
+            setState("error");
+            return;
+        }
+
         setState("enrolling");
         setError("");
+        const embNorm = Math.sqrt(descriptor.reduce((s, v) => s + v * v, 0));
+        console.log(`[kiosk-enroll] Enrolling: employeeId=${employeeId} embNorm=${embNorm.toFixed(4)} hasRefImage=${!!referenceImage}`);
+
         try {
-            // Average the 3 descriptors into one robust embedding
-            const avgEmbedding = averageDescriptors(descriptors);
-
-            if (avgEmbedding.length !== 128) {
-                setError("Failed to compute face embedding");
-                setState("error");
-                return;
-            }
-
             const res = await fetch("/api/face-recognition/enroll?action=enroll", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "x-user-id": currentUser.id || "system",
+                    ...(process.env.NEXT_PUBLIC_KIOSK_API_KEY
+                        ? { "x-kiosk-api-key": process.env.NEXT_PUBLIC_KIOSK_API_KEY }
+                        : {}),
                 },
                 body: JSON.stringify({
-                    employeeId: currentUser.id || "EMP001",
-                    embedding: avgEmbedding,
+                    employeeId,
+                    embedding: descriptor,
+                    referenceImage: referenceImage || undefined,
                 }),
             });
 
@@ -199,22 +228,11 @@ export default function FaceEnrollPage() {
             setError(err instanceof Error ? err.message : "Network error");
             setState("error");
         }
-    }, [descriptors, currentUser.id, stopCamera, router]);
-
-    const handleNext = useCallback(() => {
-        if (step < 2) {
-            setStep((s) => s + 1);
-            setState("camera");
-        } else {
-            handleEnroll();
-        }
-    }, [step, handleEnroll]);
-
-    const currentStep = STEPS[step];
+    }, [descriptor, referenceImage, currentUser.id, stopCamera, router]);
 
     return (
         <div className={cn(
-            "fixed inset-0 flex flex-col select-none",
+            "fixed inset-0 flex flex-col select-none overflow-auto",
             ks.kioskTheme === "midnight" ? "bg-slate-950" :
             ks.kioskTheme === "charcoal" ? "bg-neutral-950" : "bg-zinc-950"
         )}>
@@ -224,35 +242,18 @@ export default function FaceEnrollPage() {
             </div>
 
             {/* Top bar */}
-            <header className="relative z-10 w-full flex items-center justify-between px-8 pt-6">
-                <button onClick={() => router.push("/kiosk/face")} className="flex items-center gap-2 text-white/50 hover:text-white transition-colors">
+            <header className="relative z-10 w-full flex items-center justify-between px-4 sm:px-8 pt-4 sm:pt-6">
+                <button onClick={() => router.push("/kiosk/face")} className="flex items-center gap-2 text-white/50 hover:text-white transition-colors min-h-[44px]">
                     <ArrowLeft className="h-4 w-4" /><span className="text-sm">Back</span>
                 </button>
                 <div className="text-center">
                     <p className="text-white/40 text-xs font-semibold uppercase tracking-widest">Face Enrollment</p>
                 </div>
-                <div className="w-20" />
+                <div className="w-16 sm:w-20" />
             </header>
 
-            {/* Progress steps */}
-            <div className="relative z-10 flex items-center justify-center gap-3 mt-6 px-8">
-                {STEPS.map((s, i) => (
-                    <div key={s.label} className="flex items-center gap-2">
-                        <div className={cn(
-                            "h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors",
-                            i < step ? "bg-emerald-500 text-white" :
-                            i === step ? "bg-violet-500 text-white" : "bg-white/10 text-white/30"
-                        )}>
-                            {i < step ? <CheckCircle className="h-4 w-4" /> : i + 1}
-                        </div>
-                        <span className={cn("text-xs font-medium", i <= step ? "text-white/70" : "text-white/20")}>{s.label}</span>
-                        {i < 2 && <ChevronRight className="h-3 w-3 text-white/15 mx-1" />}
-                    </div>
-                ))}
-            </div>
-
             {/* Main content */}
-            <main className="relative z-10 flex flex-col items-center justify-center gap-6 px-6 flex-1 w-full max-w-md mx-auto">
+            <main className="relative z-10 flex flex-col items-center justify-center gap-4 sm:gap-6 px-4 sm:px-6 flex-1 w-full max-w-md mx-auto py-4">
 
                 {/* Loading models */}
                 {state === "loading-models" && (
@@ -270,7 +271,7 @@ export default function FaceEnrollPage() {
                             <CheckCircle className="h-10 w-10 text-emerald-400" />
                         </div>
                         <p className="text-2xl font-bold text-emerald-300">Face Enrolled!</p>
-                        <p className="text-white/40 text-sm">Your 128-dimensional face signature has been securely stored.</p>
+                        <p className="text-white/40 text-sm">Your face has been securely enrolled for recognition.</p>
                         <p className="text-white/30 text-xs">Redirecting to verification kiosk...</p>
                     </div>
                 )}
@@ -283,7 +284,8 @@ export default function FaceEnrollPage() {
                         </div>
                         <p className="text-lg font-bold text-red-300">Enrollment Failed</p>
                         <p className="text-white/40 text-sm">{error}</p>
-                        <button onClick={() => { setDescriptors([]); setPreviews([]); setStep(0); setState("idle"); setError(""); }} className="px-6 py-2 rounded-xl bg-white/10 text-white text-sm hover:bg-white/20 transition-colors">
+                        <button onClick={() => { setDescriptor(null); setReferenceImage(""); setPreviewUrl(""); setState("idle"); setError(""); }}
+                            className="px-6 py-3 rounded-xl bg-white/10 text-white text-sm hover:bg-white/20 transition-colors min-h-[44px]">
                             <RotateCcw className="h-3.5 w-3.5 inline mr-2" />Start Over
                         </button>
                     </div>
@@ -293,36 +295,32 @@ export default function FaceEnrollPage() {
                 {state === "enrolling" && (
                     <div className="text-center space-y-4">
                         <Loader2 className="h-12 w-12 text-violet-400 animate-spin mx-auto" />
-                        <p className="text-white/60 text-sm">Computing average embedding from {descriptors.length} captures...</p>
+                        <p className="text-white/60 text-sm">Enrolling your face...</p>
                     </div>
                 )}
 
-                {/* Detecting face */}
-                {state === "detecting" && (
-                    <div className="bg-white/[0.04] border border-white/10 rounded-3xl p-6 backdrop-blur-sm flex flex-col items-center gap-5 shadow-2xl w-full">
-                        <Loader2 className="h-8 w-8 text-violet-400 animate-spin" />
-                        <p className="text-white/60 text-sm">Detecting face & computing embedding...</p>
-                    </div>
-                )}
-
-                {/* Idle / Camera / Countdown / Captured states */}
-                {(state === "idle" || state === "camera" || state === "countdown" || state === "captured") && (
-                    <div className="bg-white/[0.04] border border-white/10 rounded-3xl p-6 backdrop-blur-sm flex flex-col items-center gap-5 shadow-2xl w-full">
+                {/* Idle / Camera / Scanning / Captured states */}
+                {(state === "idle" || state === "camera" || state === "scanning" || state === "captured") && (
+                    <div className="bg-white/[0.04] border border-white/10 rounded-3xl p-4 sm:p-6 backdrop-blur-sm flex flex-col items-center gap-4 sm:gap-5 shadow-2xl w-full">
                         <div className="flex items-center gap-2">
                             <ScanFace className="h-4 w-4 text-violet-400/60" />
                             <p className="text-white/40 text-[11px] font-semibold uppercase tracking-widest">
-                                Step {step + 1}: {currentStep.label}
+                                Front Face Capture
                             </p>
                         </div>
 
-                        <p className="text-white/60 text-sm text-center">{currentStep.instruction}</p>
+                        <p className="text-white/60 text-sm text-center">
+                            {state === "captured"
+                                ? "Review your capture below, then enroll."
+                                : "Look straight at the camera and press Scan."}
+                        </p>
 
                         {/* Camera viewport */}
-                        <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-black/50">
-                            {state === "captured" && previews[step] ? (
+                        <div className="relative w-full aspect-[3/4] sm:aspect-[4/3] rounded-2xl overflow-hidden bg-black/50">
+                            {state === "captured" && previewUrl ? (
                                 <img // eslint-disable-line @next/next/no-img-element
-                                    src={previews[step]}
-                                    alt={`Capture ${step + 1}`}
+                                    src={previewUrl}
+                                    alt="Captured face"
                                     className="w-full h-full object-cover"
                                 />
                             ) : (
@@ -333,17 +331,20 @@ export default function FaceEnrollPage() {
                                         style={{ transform: "scaleX(-1)" }}
                                         playsInline
                                         muted
+                                        autoPlay
                                     />
-                                    {/* Oval guide overlay */}
+                                    {/* Oval face guide */}
                                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                         <div className={cn(
-                                            "w-48 h-60 rounded-[50%] border-2 border-dashed transition-colors",
-                                            state === "countdown" ? "border-amber-400" : "border-white/20"
+                                            "w-40 h-52 sm:w-48 sm:h-60 rounded-[50%] border-2 border-dashed transition-colors",
+                                            state === "scanning" ? "border-amber-400 animate-pulse" : "border-white/20"
                                         )} />
                                     </div>
-                                    {state === "countdown" && (
-                                        <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                                            <span className="text-6xl font-bold text-white drop-shadow-lg animate-pulse">{countdown}</span>
+                                    {/* Scanning overlay */}
+                                    {state === "scanning" && (
+                                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/30">
+                                            <Loader2 className="h-8 w-8 text-white animate-spin" />
+                                            <p className="text-white/70 text-xs mt-2">Scanning face... {scanProgress}%</p>
                                         </div>
                                     )}
                                 </>
@@ -351,34 +352,38 @@ export default function FaceEnrollPage() {
                         </div>
                         <canvas ref={canvasRef} className="hidden" />
 
-                        {/* Action buttons */}
+                        {/* Action buttons — min 44px height for mobile touch targets */}
                         <div className="w-full flex gap-3">
                             {state === "idle" && (
-                                <button onClick={startCamera} className="flex-1 py-3 rounded-xl bg-violet-500/80 hover:bg-violet-500 text-white text-sm font-bold transition-all">
+                                <button onClick={startCamera}
+                                    className="flex-1 py-3.5 rounded-xl bg-violet-500/80 hover:bg-violet-500 text-white text-sm font-bold transition-all min-h-[44px]">
                                     <Camera className="h-4 w-4 inline mr-2" />Open Camera
                                 </button>
                             )}
                             {state === "camera" && (
-                                <button onClick={beginCapture} className="flex-1 py-3 rounded-xl bg-violet-500/80 hover:bg-violet-500 text-white text-sm font-bold transition-all">
-                                    <Camera className="h-4 w-4 inline mr-2" />Capture
+                                <button onClick={handleScan}
+                                    className="flex-1 py-3.5 rounded-xl bg-violet-500/80 hover:bg-violet-500 text-white text-sm font-bold transition-all min-h-[44px]">
+                                    <Camera className="h-4 w-4 inline mr-2" />Scan Face
                                 </button>
                             )}
                             {state === "captured" && (
                                 <>
-                                    <button onClick={handleRetake} className="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition-all">
+                                    <button onClick={handleRetake}
+                                        className="flex-1 py-3.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition-all min-h-[44px]">
                                         <RotateCcw className="h-3.5 w-3.5 inline mr-1.5" />Retake
                                     </button>
-                                    <button onClick={handleNext} className="flex-1 py-3 rounded-xl bg-emerald-500/80 hover:bg-emerald-500 text-white text-sm font-bold transition-all">
-                                        {step < 2 ? "Next" : "Enroll"}<ChevronRight className="h-4 w-4 inline ml-1" />
+                                    <button onClick={handleEnroll}
+                                        className="flex-1 py-3.5 rounded-xl bg-emerald-500/80 hover:bg-emerald-500 text-white text-sm font-bold transition-all min-h-[44px]">
+                                        Enroll<ChevronRight className="h-4 w-4 inline ml-1" />
                                     </button>
                                 </>
                             )}
                         </div>
 
-                        {/* Embedding info */}
-                        {state === "captured" && descriptors[step] && (
-                            <p className="text-white/20 text-[10px] text-center">
-                                128-d descriptor captured (score: {(descriptors[step][0] * 100).toFixed(0)}...)
+                        {state === "idle" && (
+                            <p className="text-white/25 text-[10px] text-center">
+                                Your face will be scanned using multiple frames for accuracy.
+                                Works best with good lighting and a clear front-facing view.
                             </p>
                         )}
                     </div>
@@ -386,9 +391,9 @@ export default function FaceEnrollPage() {
             </main>
 
             {/* Footer */}
-            <footer className="relative z-10 w-full flex items-center justify-center pb-6">
+            <footer className="relative z-10 w-full flex items-center justify-center pb-4 sm:pb-6">
                 <div className="flex items-center gap-2 text-white/20 text-xs">
-                    <span>{companyName || "NexHRMS"} • Embeddings computed locally via face-api.js</span>
+                    <span>{companyName || "NexHRMS"} • Face Enrollment</span>
                 </div>
             </footer>
         </div>

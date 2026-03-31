@@ -5,9 +5,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
     ScanFace, CheckCircle, ShieldAlert, Loader2, Camera,
-    Smartphone, Sun, AlertTriangle,
+    Sun, AlertTriangle, Eye,
 } from "lucide-react";
-import { loadFaceModels, detectFace, averageDescriptors } from "@/lib/face-api";
+import { loadFaceModels, detectFace, detectFaceQuick, averageDescriptors, descriptorConsistency } from "@/lib/face-api";
+import type { FaceTrackingResult } from "@/lib/face-api";
+import { useAuthStore } from "@/store/auth.store";
 
 /**
  * Real Face Verification component using face-api.js 128-d embeddings.
@@ -27,7 +29,7 @@ interface RealFaceVerificationProps {
     autoStart?: boolean;
     employeeId?: string;
     employeeName?: string;
-    /** When true, face verification cannot be skipped (face_only / face_or_qr projects) */
+    /** When true, face verification cannot be skipped (face_only projects) */
     required?: boolean;
 }
 
@@ -57,6 +59,7 @@ export function RealFaceVerification({
     employeeId,
     required = false,
 }: RealFaceVerificationProps) {
+    const currentUserId = useAuthStore((s) => s.currentUser?.id);
     const [phase, setPhase] = useState<Phase>("loading");
     const [error, setError] = useState("");
     const [errorHint, setErrorHint] = useState("");
@@ -66,6 +69,15 @@ export function RealFaceVerification({
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+
+    // ── Live face tracking state ──
+    const [tracking, setTracking] = useState<FaceTrackingResult | null>(null);
+    const [guidanceMsg, setGuidanceMsg] = useState("");
+    const [guidanceColor, setGuidanceColor] = useState<"red" | "amber" | "green">("red");
+    const [scanProgress, setScanProgress] = useState(0);
+    const trackingRef = useRef(true);
+    const stableCountRef = useRef(0);
+    const autoScanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Clean up camera + wake lock
     const cleanup = useCallback(() => {
@@ -78,6 +90,7 @@ export function RealFaceVerification({
     // Load face-api models on mount
     useEffect(() => {
         let cancelled = false;
+        console.log(`[face-verify] Initializing: employeeId=${employeeId ?? "none"} autoStart=${autoStart} disabled=${disabled}`);
         loadFaceModels()
             .then(() => {
                 if (cancelled) return;
@@ -157,6 +170,124 @@ export function RealFaceVerification({
         }
     }, [isMobile]);
 
+    // ── Live face tracking loop ──
+    useEffect(() => {
+        if (phase !== "camera" || !videoReady || !videoRef.current) {
+            trackingRef.current = false;
+            return;
+        }
+
+        trackingRef.current = true;
+        let rafId: number;
+        let lastTrackTime = 0;
+        let trackFrameCount = 0;
+        const TRACK_INTERVAL = 250;
+        console.log(`[face-verify] Tracking loop STARTED (phase=${phase}, videoReady=${videoReady})`);
+
+        const trackLoop = async (timestamp: number) => {
+            if (!trackingRef.current || !videoRef.current) return;
+
+            if (timestamp - lastTrackTime >= TRACK_INTERVAL) {
+                lastTrackTime = timestamp;
+
+                try {
+                    const result = await detectFaceQuick(videoRef.current);
+                    if (!trackingRef.current) return;
+
+                    setTracking(result);
+                    trackFrameCount++;
+
+                    // Log every 4th frame to avoid console spam
+                    if (trackFrameCount % 4 === 1) {
+                        console.log(`[face-verify] Track #${trackFrameCount}: ${result ? `score=${result.score.toFixed(2)} yaw=${result.yaw.toFixed(2)} faces=${result.faceCount} ratio=${(result.box.width / (videoRef.current?.videoWidth || 640)).toFixed(2)}` : "no face"} stable=${stableCountRef.current} guidance=${guidanceColor}`);
+                    }
+
+                    if (!result) {
+                        setGuidanceMsg("No face detected — look at the camera");
+                        setGuidanceColor("red");
+                        stableCountRef.current = 0;
+                    } else if (result.faceCount > 1) {
+                        setGuidanceMsg("Multiple faces detected — only one person please");
+                        setGuidanceColor("red");
+                        stableCountRef.current = 0;
+                    } else if (result.score < 0.55) {
+                        setGuidanceMsg("Face unclear — improve lighting");
+                        setGuidanceColor("amber");
+                        stableCountRef.current = 0;
+                    } else {
+                        const videoW = videoRef.current?.videoWidth || 640;
+                        const faceRatio = result.box.width / videoW;
+
+                        if (faceRatio < 0.15) {
+                            setGuidanceMsg("Move closer to the camera");
+                            setGuidanceColor("amber");
+                            stableCountRef.current = 0;
+                        } else if (faceRatio > 0.55) {
+                            setGuidanceMsg("Move back a little");
+                            setGuidanceColor("amber");
+                            stableCountRef.current = 0;
+                        } else {
+                            // For verification, we want a roughly front-facing pose
+                            const yaw = result.yaw;
+                            if (yaw < -0.25 || yaw > 0.25) {
+                                setGuidanceMsg("Look straight at the camera");
+                                setGuidanceColor("amber");
+                                stableCountRef.current = 0;
+                            } else {
+                                // Face is well-positioned!
+                                stableCountRef.current += 1;
+                                const stableNeeded = 4; // ~1s at 250ms
+
+                                if (stableCountRef.current >= stableNeeded) {
+                                    setGuidanceMsg("Perfect! Scanning...");
+                                    setGuidanceColor("green");
+                                } else {
+                                    setGuidanceMsg(`Hold still... (${Math.round((stableCountRef.current / stableNeeded) * 100)}%)`);
+                                    setGuidanceColor("green");
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    // Non-critical tracking error
+                }
+            }
+
+            if (trackingRef.current) {
+                rafId = requestAnimationFrame(trackLoop);
+            }
+        };
+
+        rafId = requestAnimationFrame(trackLoop);
+
+        return () => {
+            console.log(`[face-verify] Tracking loop STOPPED (frames tracked: ${trackFrameCount})`);
+            trackingRef.current = false;
+            cancelAnimationFrame(rafId);
+        };
+    }, [phase, videoReady]);
+
+    // ── Auto-scan when face is stable ──
+    useEffect(() => {
+        if (phase !== "camera" || !videoReady) return;
+
+        if (stableCountRef.current >= 4 && guidanceColor === "green" && guidanceMsg.includes("Scanning")) {
+            if (!autoScanTimerRef.current) {
+                autoScanTimerRef.current = setTimeout(() => {
+                    autoScanTimerRef.current = null;
+                    if (phase === "camera") {
+                        handleScan();
+                    }
+                }, 400);
+            }
+        } else {
+            if (autoScanTimerRef.current) {
+                clearTimeout(autoScanTimerRef.current);
+                autoScanTimerRef.current = null;
+            }
+        }
+    }, [guidanceColor, guidanceMsg, phase, videoReady]);
+
     const handleScan = useCallback(async () => {
         const video = videoRef.current;
         if (!video || !videoReady) return;
@@ -170,14 +301,18 @@ export function RealFaceVerification({
         }
 
         setPhase("scanning");
+        trackingRef.current = false;
+        stableCountRef.current = 0;
+        setScanProgress(0);
+        console.log(`[face-verify] Starting face scan for employee=${employeeId || "unknown"}`);
 
         // Multi-frame detection: capture up to 10 frames over ~3s.
-        // More frames = more stable averaged embedding for reliable matching.
-        // Use the same confidence floor as enrollment (0.6 from face-api).
         const canvas = canvasRef.current;
         const validDescriptors: { descriptor: number[]; score: number }[] = [];
         const MAX_ATTEMPTS = 10;
-        const MIN_GOOD_FRAMES = 3;
+        const MIN_GOOD_FRAMES = 4;
+        const MIN_DETECTION_SCORE = 0.70;
+        const MAX_CONSISTENCY_DISTANCE = 0.35;
 
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             if (canvas) {
@@ -186,22 +321,29 @@ export function RealFaceVerification({
                 const ctx = canvas.getContext("2d");
                 if (ctx) ctx.drawImage(video, 0, 0);
                 const result = await detectFace(canvas);
-                // Accept any face that passes the base SSD MobileNet threshold (0.6)
-                // This matches what enrollment accepts, preventing quality mismatch
-                if (result && result.score >= 0.6) {
-                    validDescriptors.push({ descriptor: result.descriptor, score: result.score });
+                if (result) {
+                    console.log(`[face-verify] Frame ${attempt + 1}: score=${result.score.toFixed(3)} ${result.score >= MIN_DETECTION_SCORE ? "✓" : "✗"}`);
+                    if (result.score >= MIN_DETECTION_SCORE) {
+                        validDescriptors.push({ descriptor: result.descriptor, score: result.score });
+                    }
+                } else {
+                    console.log(`[face-verify] Frame ${attempt + 1}: no face detected`);
                 }
             }
             if (attempt < MAX_ATTEMPTS - 1) {
                 await new Promise((r) => setTimeout(r, 300));
             }
+            setScanProgress(Math.round(((attempt + 1) / MAX_ATTEMPTS) * 100));
             // Early exit once we have plenty of good frames
             if (validDescriptors.length >= 7) break;
         }
 
+        console.log(`[face-verify] Captured ${validDescriptors.length}/${MAX_ATTEMPTS} valid frames (need ${MIN_GOOD_FRAMES}+)`);
+
         if (validDescriptors.length < MIN_GOOD_FRAMES) {
+            console.warn(`[face-verify] REJECTED: insufficient frames (${validDescriptors.length})`);
             cleanup();
-            setError(validDescriptors.length === 0 ? "No face detected." : "Face detection unstable — only partial frames captured.");
+            setError(validDescriptors.length === 0 ? "No face detected." : `Only ${validDescriptors.length} frame(s) — hold steady with better lighting.`);
             setErrorHint(isMobile
                 ? "Hold your phone at arm's length, ensure good lighting, and look directly at the screen."
                 : "Position your face clearly within the oval guide and ensure good lighting.");
@@ -212,7 +354,23 @@ export function RealFaceVerification({
         // Sort by detection confidence and take top frames, then average
         validDescriptors.sort((a, b) => b.score - a.score);
         const topDescriptors = validDescriptors.slice(0, 5).map((d) => d.descriptor);
+
+        // Consistency check: reject if frames are too different (jitter / movement)
+        const consistency = descriptorConsistency(topDescriptors);
+        console.log(`[face-verify] Frame consistency: ${consistency.toFixed(4)} (max allowed: ${MAX_CONSISTENCY_DISTANCE})`);
+
+        if (consistency > MAX_CONSISTENCY_DISTANCE) {
+            console.warn(`[face-verify] REJECTED: inconsistent frames (${consistency.toFixed(4)})`);
+            cleanup();
+            setError("Face detection unstable.");
+            setErrorHint("Hold still and ensure consistent lighting.");
+            setPhase("failed");
+            return;
+        }
+
         const averaged = averageDescriptors(topDescriptors);
+        const embNorm = Math.sqrt(averaged.reduce((s, v) => s + v * v, 0));
+        console.log(`[face-verify] Averaged embedding: norm=${embNorm.toFixed(4)}, avgScore=${(topDescriptors.length > 0 ? validDescriptors.slice(0, topDescriptors.length).reduce((s, d) => s + d.score, 0) / topDescriptors.length : 0).toFixed(3)}`);
 
         // Capture probe image for AI face comparison before stopping camera
         const probeImage = canvas?.toDataURL("image/jpeg", 0.85);
@@ -223,27 +381,37 @@ export function RealFaceVerification({
 
         try {
             // When employeeId is provided, use targeted verify (tighter identity check)
-            // Send a single averaged embedding for more robust matching.
             if (employeeId) {
+                console.log(`[face-verify] Sending verify request for employee=${employeeId}`);
                 const res = await fetch("/api/face-recognition/enroll?action=verify", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...(currentUserId ? { "x-user-id": currentUserId } : {}),
+                        ...(process.env.NEXT_PUBLIC_KIOSK_API_KEY
+                            ? { "x-kiosk-api-key": process.env.NEXT_PUBLIC_KIOSK_API_KEY }
+                            : {}),
+                    },
                     body: JSON.stringify({ employeeId, embedding: averaged, probeImage }),
                 });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.ok && data.verified) {
-                        setPhase("verified");
-                        setTimeout(() => onVerified(), 1500);
-                        return;
-                    }
+                const verifyData = res.ok ? await res.json() : null;
+                console.log(`[face-verify] Verify response:`, verifyData);
+
+                if (verifyData?.ok && verifyData.verified) {
+                    console.log(`[face-verify] ✅ VERIFIED employee=${employeeId} distance=${verifyData.distance?.toFixed(4) ?? "?"}`);
+                    setPhase("verified");
+                    setTimeout(() => onVerified(), 1500);
+                    return;
                 }
+
+                console.warn(`[face-verify] ❌ Verify FAILED for employee=${employeeId}`, verifyData);
 
                 // Check if employee has enrollment at all
                 const statusRes = await fetch(`/api/face-recognition/enroll?action=status&employeeId=${encodeURIComponent(employeeId)}`);
                 if (statusRes.ok) {
                     const statusData = await statusRes.json();
                     if (!statusData.enrolled) {
+                        console.log(`[face-verify] Employee ${employeeId} has no face enrollment`);
                         setPhase("no-enrollment");
                         return;
                     }
@@ -256,25 +424,35 @@ export function RealFaceVerification({
             }
 
             // Fallback: no employeeId — use broad match with averaged embedding
+            console.log(`[face-verify] Sending match request (no specific employee)`);
             const res = await fetch("/api/face-recognition/enroll?action=match", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(currentUserId ? { "x-user-id": currentUserId } : {}),
+                    ...(process.env.NEXT_PUBLIC_KIOSK_API_KEY
+                        ? { "x-kiosk-api-key": process.env.NEXT_PUBLIC_KIOSK_API_KEY }
+                        : {}),
+                },
                 body: JSON.stringify({ embedding: averaged, probeImage }),
             });
 
-            if (res.ok) {
-                const data = await res.json();
-                if (data.ok && data.employeeId) {
-                    setPhase("verified");
-                    setTimeout(() => onVerified(), 1500);
-                    return;
-                }
+            const matchData = res.ok ? await res.json() : null;
+            console.log(`[face-verify] Match response:`, matchData);
+
+            if (matchData?.ok && matchData.employeeId) {
+                console.log(`[face-verify] ✅ MATCHED employee=${matchData.employeeId} distance=${matchData.distance?.toFixed(4) ?? "?"}`);
+                setPhase("verified");
+                setTimeout(() => onVerified(), 1500);
+                return;
             }
 
+            console.warn(`[face-verify] ❌ Match FAILED`, matchData);
             setError("Face verification failed.");
             setErrorHint("Your face did not match any enrolled profile. Try with better lighting or enroll first.");
             setPhase("failed");
-        } catch {
+        } catch (err) {
+            console.error(`[face-verify] Network/unexpected error:`, err);
             setError("Network error during verification.");
             setErrorHint("Check your internet connection and try again.");
             setPhase("failed");
@@ -286,12 +464,13 @@ export function RealFaceVerification({
         setError("");
         setErrorHint("");
         setVideoReady(false);
+        setTracking(null);
+        setGuidanceMsg("");
+        setGuidanceColor("red");
+        setScanProgress(0);
+        stableCountRef.current = 0;
         startCamera();
     }, [cleanup, startCamera]);
-
-    const handleSkipNoEnrollment = useCallback(() => {
-        onVerified();
-    }, [onVerified]);
 
     // ── Loading ──────────────────────────────────────────────────
     if (phase === "loading") {
@@ -339,32 +518,24 @@ export function RealFaceVerification({
     // ── No enrollment ────────────────────────────────────────────
     if (phase === "no-enrollment") {
         return (
-            <Card className={`border ${required ? "border-red-500/30 bg-red-500/5" : "border-amber-500/30 bg-amber-500/5"}`}>
+            <Card className="border border-red-500/30 bg-red-500/5">
                 <CardContent className="p-5 sm:p-6 flex flex-col items-center gap-3">
-                    <div className={`h-14 w-14 sm:h-16 sm:w-16 rounded-full flex items-center justify-center ${required ? "bg-red-500/15" : "bg-amber-500/15"}`}>
-                        <ScanFace className={`h-7 w-7 sm:h-8 sm:w-8 ${required ? "text-red-500" : "text-amber-500"}`} />
+                    <div className="h-14 w-14 sm:h-16 sm:w-16 rounded-full flex items-center justify-center bg-red-500/15">
+                        <ScanFace className="h-7 w-7 sm:h-8 sm:w-8 text-red-500" />
                     </div>
-                    <p className={`text-sm font-medium ${required ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
-                        {required ? "Face Enrollment Required" : "Face Not Enrolled"}
+                    <p className="text-sm font-medium text-red-700 dark:text-red-400">
+                        Face Enrollment Required
                     </p>
                     <p className="text-xs text-muted-foreground text-center max-w-[280px]">
-                        {required
-                            ? "Your project requires face verification for check-in. Please enroll your face first."
-                            : "You haven\u2019t enrolled your face yet. Visit the Face Enrollment page to register your biometric signature."}
+                        You must enroll your face before checking in. Visit the Face Enrollment page to register your biometric signature.
                     </p>
-                    {required ? (
-                        <Button
-                            onClick={() => { window.location.href = `/${window.location.pathname.split("/")[1]}/face-enrollment`; }}
-                            variant="outline"
-                            className="gap-1.5 min-h-[44px] w-full sm:w-auto"
-                        >
-                            <ScanFace className="h-4 w-4" /> Go to Face Enrollment
-                        </Button>
-                    ) : (
-                        <Button onClick={handleSkipNoEnrollment} className="gap-1.5 min-h-[44px] w-full sm:w-auto">
-                            <CheckCircle className="h-4 w-4" /> Continue Check-In
-                        </Button>
-                    )}
+                    <Button
+                        onClick={() => { window.location.href = `/${window.location.pathname.split("/")[1]}/face-enrollment`; }}
+                        variant="outline"
+                        className="gap-1.5 min-h-[44px] w-full sm:w-auto"
+                    >
+                        <ScanFace className="h-4 w-4" /> Go to Face Enrollment
+                    </Button>
                 </CardContent>
             </Card>
         );
@@ -433,8 +604,6 @@ export function RealFaceVerification({
                 <canvas ref={canvasRef} className="hidden" />
                 {/* Responsive camera view: taller on mobile (portrait), wider on desktop */}
                 <div className="relative w-full bg-black aspect-[3/4] sm:aspect-[4/3] max-h-[50vh] sm:max-h-[320px]">
-                    {/* Single always-mounted video element — stream is attached here and stays
-                        across phase transitions to avoid black screen from re-mount */}
                     <video
                         ref={videoRef}
                         autoPlay
@@ -455,32 +624,49 @@ export function RealFaceVerification({
                         </div>
                     )}
 
-                    {/* Responsive face oval guide */}
+                    {/* Face oval guide — color changes based on tracking */}
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className={`w-[40%] max-w-[160px] aspect-[3/4] rounded-full border-2 transition-colors duration-300 ${
-                            phase === "scanning" ? "border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.3)]" : "border-white/50"
+                        <div className={`w-[40%] max-w-[160px] aspect-[3/4] rounded-full border-2 transition-all duration-300 ${
+                            phase === "scanning" ? "border-blue-400 shadow-[0_0_20px_rgba(96,165,250,0.4)]" :
+                            guidanceColor === "green" ? "border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.3)]" :
+                            guidanceColor === "amber" ? "border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.2)]" :
+                            tracking ? "border-red-400 shadow-[0_0_15px_rgba(248,113,113,0.2)]" : "border-white/50"
                         }`} />
                     </div>
 
-                    {/* Mobile-friendly hint bar */}
-                    {isMobile && phase === "camera" && (
+                    {/* Live guidance message banner */}
+                    {phase === "camera" && guidanceMsg && (
                         <div className="absolute top-3 left-0 right-0 flex justify-center">
-                            <div className="bg-black/60 backdrop-blur-sm rounded-full px-3 py-1 flex items-center gap-1.5">
-                                <Smartphone className="h-3 w-3 text-white/70" />
-                                <span className="text-white/80 text-[10px]">Hold at arm&apos;s length</span>
+                            <div className={`backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5 max-w-[90%] ${
+                                guidanceColor === "green" ? "bg-emerald-900/70" :
+                                guidanceColor === "amber" ? "bg-amber-900/70" : "bg-red-900/70"
+                            }`}>
+                                {guidanceColor === "green" ? <CheckCircle className="h-3 w-3 text-emerald-400 shrink-0" /> :
+                                 guidanceColor === "amber" ? <Eye className="h-3 w-3 text-amber-400 shrink-0" /> :
+                                 <AlertTriangle className="h-3 w-3 text-red-400 shrink-0" />}
+                                <span className={`text-[11px] font-medium ${
+                                    guidanceColor === "green" ? "text-emerald-300" :
+                                    guidanceColor === "amber" ? "text-amber-300" : "text-red-300"
+                                }`}>{guidanceMsg}</span>
                             </div>
                         </div>
                     )}
 
+                    {/* Scanning overlay with progress */}
                     {phase === "scanning" && (
-                        <div className="absolute bottom-4 left-0 right-0 flex justify-center">
-                            <div className="bg-black/60 backdrop-blur-sm rounded-full px-4 py-2 flex items-center gap-2">
-                                <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                                <span className="text-white text-sm font-medium">Detecting face...</span>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 gap-3">
+                            <Loader2 className="h-9 w-9 sm:h-10 sm:w-10 text-white animate-spin" />
+                            <div className="w-32 sm:w-40 h-1.5 bg-white/20 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-blue-400 rounded-full transition-all duration-200"
+                                    style={{ width: `${scanProgress}%` }}
+                                />
                             </div>
+                            <p className="text-white/80 text-xs">Scanning face... {scanProgress}%</p>
                         </div>
                     )}
-                    {phase === "camera" && (
+
+                    {phase === "camera" && !guidanceMsg && (
                         <div className="absolute bottom-4 left-0 right-0 flex justify-center">
                             <div className="bg-black/50 backdrop-blur-sm rounded-full px-4 py-1.5">
                                 <span className="text-white/80 text-xs">Position your face in the oval</span>
@@ -491,19 +677,24 @@ export function RealFaceVerification({
 
                 <div className="p-3 sm:p-4 flex flex-col items-center gap-2">
                     {phase === "camera" && (
-                        <Button
-                            onClick={handleScan}
-                            className="w-full gap-2 min-h-[48px] text-base sm:text-sm sm:min-h-[40px]"
-                            disabled={!videoReady}
-                        >
-                            <ScanFace className="h-5 w-5 sm:h-4 sm:w-4" />
-                            {videoReady ? "Verify My Face" : "Preparing camera..."}
-                        </Button>
-                    )}
-                    {isMobile && phase === "camera" && (
-                        <p className="text-[10px] text-muted-foreground text-center">
-                            Ensure good lighting and look directly at the camera
-                        </p>
+                        <>
+                            <Button
+                                onClick={handleScan}
+                                className="w-full gap-2 min-h-[48px] text-base sm:text-sm sm:min-h-[40px]"
+                                disabled={!videoReady || guidanceColor === "red"}
+                            >
+                                <ScanFace className="h-5 w-5 sm:h-4 sm:w-4" />
+                                {!videoReady ? "Preparing camera..." :
+                                 guidanceColor === "red" ? "Position your face first" :
+                                 guidanceColor === "green" ? "Verify My Face ✓" :
+                                 "Verify My Face"}
+                            </Button>
+                            <p className="text-[10px] text-muted-foreground text-center">
+                                {guidanceColor === "green"
+                                    ? "Auto-scan will trigger when you hold still — or tap the button"
+                                    : "Follow the on-screen guidance to position your face"}
+                            </p>
+                        </>
                     )}
                 </div>
             </CardContent>

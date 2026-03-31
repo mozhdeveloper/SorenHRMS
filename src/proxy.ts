@@ -25,6 +25,26 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse;
   }
 
+  // Public routes — skip the expensive Supabase auth round-trip entirely.
+  // This eliminates ~200-1000ms of latency for /login, /kiosk, and API routes.
+  const publicPaths = ["/login", "/kiosk", "/api/"];
+  const isPublic = publicPaths.some(
+    (p) => request.nextUrl.pathname === p || request.nextUrl.pathname.startsWith(p.endsWith("/") ? p : p + "/")
+  );
+
+  // If the user has no Supabase auth cookies at all, they definitely have no
+  // session — skip the auth check and redirect to login immediately.
+  const hasAuthCookies = request.cookies.getAll().some((c) => c.name.startsWith("sb-"));
+
+  if (isPublic || !hasAuthCookies) {
+    if (!isPublic && !hasAuthCookies) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      return NextResponse.redirect(url);
+    }
+    return supabaseResponse;
+  }
+
   const supabase = createServerClient(
     supabaseUrl,
     supabaseAnonKey,
@@ -57,17 +77,25 @@ export async function proxy(request: NextRequest) {
     const isNetworkError =
       err instanceof Error &&
       (err.name === "AbortError" || (err as NodeJS.ErrnoException).code === "ECONNRESET");
-    if (!isNetworkError) {
+    // Swallow Supabase auth errors (expired/invalid refresh token) — treat as
+    // unauthenticated.  Also clear the stale Supabase auth cookies so the
+    // failed refresh doesn't repeat on every subsequent request.
+    const isAuthError =
+      err != null && typeof err === "object" && "__isAuthError" in err;
+    if (isAuthError) {
+      // Delete all sb-* auth cookies so the next request starts clean
+      for (const cookie of request.cookies.getAll()) {
+        if (cookie.name.startsWith("sb-")) {
+          supabaseResponse.cookies.delete(cookie.name);
+        }
+      }
+    } else if (!isNetworkError) {
       console.error("[proxy] Unexpected auth error:", err);
     }
     user = null;
   }
 
-  // Redirect unauthenticated users to login (except for public routes)
-  const publicPaths = ["/login", "/kiosk"];
-  const isPublic = publicPaths.some((p) => request.nextUrl.pathname === p || request.nextUrl.pathname.startsWith(p + "/"));
-
-  if (!user && !isPublic) {
+  if (!user) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

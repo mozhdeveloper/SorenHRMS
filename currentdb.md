@@ -782,6 +782,14 @@ CREATE TABLE public.task_groups (
   CONSTRAINT task_groups_pkey PRIMARY KEY (id),
   CONSTRAINT fk_tg_project FOREIGN KEY (project_id) REFERENCES public.projects(id)
 );
+CREATE TABLE public.task_tags (
+  id text NOT NULL,
+  name text NOT NULL UNIQUE,
+  color text NOT NULL DEFAULT '#6366f1'::text,
+  created_by text NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT task_tags_pkey PRIMARY KEY (id)
+);
 CREATE TABLE public.tasks (
   id text NOT NULL,
   group_id text NOT NULL,
@@ -796,8 +804,10 @@ CREATE TABLE public.tasks (
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   completion_required boolean NOT NULL DEFAULT false,
   tags ARRAY DEFAULT '{}'::text[],
+  project_id text,
   CONSTRAINT tasks_pkey PRIMARY KEY (id),
-  CONSTRAINT tasks_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.task_groups(id)
+  CONSTRAINT tasks_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.task_groups(id),
+  CONSTRAINT tasks_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id)
 );
 CREATE TABLE public.text_channels (
   id text NOT NULL,

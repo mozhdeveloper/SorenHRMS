@@ -71,6 +71,9 @@ function MapRecenter({ center }: { center: [number, number] }) {
     } catch {
       // Map panes not ready yet — MapContainer center prop already set the position
     }
+    // Stop any in-flight animation when the component unmounts (e.g. dialog close)
+    // to prevent Leaflet reading _leaflet_pos on a detached DOM element.
+    return () => { try { map.stop(); } catch { /* map already destroyed */ } };
   }, [center, map]);
   return null;
 }
@@ -84,7 +87,6 @@ export function MapSelector({
   onRadiusChange,
   onAddressChange,
 }: MapSelectorProps) {
-  const [mapReady, setMapReady] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [locationAddress, setLocationAddress] = useState("");
   const [geocoding, setGeocoding] = useState(false);
@@ -97,10 +99,6 @@ export function MapSelector({
   const mapLat = parseFloat(lat) || 14.5995;
   const mapLng = parseFloat(lng) || 120.9842;
   const mapRadius = parseFloat(radius) || 100;
-
-  useEffect(() => {
-    setMapReady(true);
-  }, []);
 
   const fetchAddress = useCallback(async (latitude: number, longitude: number) => {
     setGeocoding(true);
@@ -298,10 +296,9 @@ export function MapSelector({
         </div>
       </div>
 
-      {/* Map Container */}
-      {mapReady && (
-        <div className="border border-border rounded-lg overflow-hidden shadow-sm">
-          <MapContainer
+      {/* Map Container — component is dynamically imported with ssr:false so always browser-only */}
+      <div className="border border-border rounded-lg overflow-hidden shadow-sm">
+        <MapContainer
             center={[mapLat, mapLng]}
             zoom={16}
             style={{ height: "400px", width: "100%" }}
@@ -332,7 +329,7 @@ export function MapSelector({
             )}
           </MapContainer>
         </div>
-      )}
+
 
       {/* Radius Slider */}
       <div>

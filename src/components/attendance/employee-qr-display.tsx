@@ -84,7 +84,7 @@ export function EmployeeQRDisplay({ employeeId, employeeName, onCheckedIn }: Emp
         </div>
         <p className="text-sm font-semibold">Your Daily QR Code</p>
         <div className="bg-white p-3 rounded-xl shadow-sm">
-          <QRCodeSVG value={qrPayload} size={200} level="M" />
+          <QRCodeSVG value={qrPayload} size={240} level="M" />
         </div>
         {employeeName && (
           <p className="text-xs text-muted-foreground">{employeeName}</p>
@@ -94,7 +94,7 @@ export function EmployeeQRDisplay({ employeeId, employeeName, onCheckedIn }: Emp
         </p>
         {onCheckedIn && (
           <Button size="sm" variant="outline" onClick={onCheckedIn} className="gap-1.5 mt-1">
-            <CheckCircle className="h-4 w-4" /> I&apos;ve Scanned at Kiosk
+            <CheckCircle className="h-4 w-4" /> Done — Close
           </Button>
         )}
       </CardContent>

@@ -55,11 +55,30 @@ let _realtimeChannel: ReturnType<ReturnType<typeof createClient>["channel"]> | n
  * Call this once after successful login or on app mount.
  */
 export async function hydrateAllStores(): Promise<void> {
+  return hydrateAllStoresInternal();
+}
+
+/**
+ * Force a full re-hydration from Supabase, bypassing the `_hydrated` guard.
+ * Use after operations (like attendance reset) that modify the DB outside the
+ * write-through flow so the local store is guaranteed to match the DB state.
+ */
+export async function forceRehydrate(): Promise<void> {
+  _hydrated = false;
+  await hydrateAllStoresInternal();
+}
+
+async function hydrateAllStoresInternal(): Promise<void> {
   if (!shouldSync()) return;
   if (_hydrated) return;
 
   try {
-    // Fetch all core data in parallel
+    // Fetch all core data in two sequential batches of ~20 to stay well under
+    // Supabase's per-origin concurrent-request limit (~6 HTTP/1.1 connections
+    // or ~100 HTTP/2 streams). Firing all 40+ at once can cause the browser to
+    // drop some requests, producing CORS-style "Failed to fetch" errors.
+
+    // ── Batch 1: HR + Attendance + Payroll ───────────────────────
     const [
       employees,
       salaryRequests,
@@ -81,25 +100,6 @@ export async function hydrateAllStores(): Promise<void> {
       finalPayComputations,
       payScheduleRows,
       loans,
-      projects,
-      auditLogs,
-      calendarEvents,
-      announcements,
-      textChannels,
-      channelMessages,
-      taskGroups,
-      tasks,
-      completionReports,
-      taskComments,
-      timesheets,
-      ruleSets,
-      notificationLogs,
-      notificationRules,
-      locationPings,
-      sitePhotos,
-      breakRecords,
-      allLoanDeductions,
-      allRepaymentSchedules,
     ] = await Promise.all([
       employeesDb.fetchAll(),
       salaryDb.fetchRequests(),
@@ -121,6 +121,31 @@ export async function hydrateAllStores(): Promise<void> {
       payrollDb.fetchFinalPay(),
       payrollDb.fetchPaySchedule(),
       loansDb.fetchAll(),
+    ]);
+
+    // ── Batch 2: Projects + Comms + Tasks + Misc ────────────────
+    const [
+      projects,
+      auditLogs,
+      calendarEvents,
+      announcements,
+      textChannels,
+      channelMessages,
+      taskGroups,
+      tasks,
+      completionReports,
+      taskComments,
+      taskTagsList,
+      timesheets,
+      ruleSets,
+      notificationLogs,
+      notificationRules,
+      locationPings,
+      sitePhotos,
+      breakRecords,
+      allLoanDeductions,
+      allRepaymentSchedules,
+    ] = await Promise.all([
       projectsDb.fetchAll(),
       auditDb.fetchAll(),
       eventsDb.fetchAll(),
@@ -131,6 +156,7 @@ export async function hydrateAllStores(): Promise<void> {
       tasksDb.fetchTasks(),
       tasksDb.fetchCompletionReports(),
       tasksDb.fetchComments(),
+      tasksDb.fetchTags(),
       timesheetsDb.fetchTimesheets(),
       timesheetsDb.fetchRuleSets(),
       notificationsDb.fetchLogs(),
@@ -163,10 +189,11 @@ export async function hydrateAllStores(): Promise<void> {
       });
     }
 
-    // Hydrate attendance store
+    // Hydrate attendance store.
+    // logs and events are always set (even when empty) so a DB-side reset clears local state on refresh.
     useAttendanceStore.setState({
-      ...(attendanceLogs.length > 0 ? { logs: attendanceLogs } : {}),
-      ...(attendanceEvents.length > 0 ? { events: attendanceEvents } : {}),
+      logs: attendanceLogs,
+      events: attendanceEvents,
       ...(holidays.length > 0 ? { holidays } : {}),
       ...(shifts.length > 0 ? { shiftTemplates: shifts } : {}),
       ...(overtimeRequests.length > 0 ? { overtimeRequests } : {}),
@@ -223,12 +250,13 @@ export async function hydrateAllStores(): Promise<void> {
     }
 
     // Hydrate tasks store
-    if (taskGroups.length > 0 || tasks.length > 0 || completionReports.length > 0 || taskComments.length > 0) {
+    if (taskGroups.length > 0 || tasks.length > 0 || completionReports.length > 0 || taskComments.length > 0 || taskTagsList.length > 0) {
       useTasksStore.setState({
         ...(taskGroups.length > 0 ? { groups: taskGroups } : {}),
         ...(tasks.length > 0 ? { tasks } : {}),
         ...(completionReports.length > 0 ? { completionReports } : {}),
         ...(taskComments.length > 0 ? { comments: taskComments } : {}),
+        ...(taskTagsList.length > 0 ? { taskTags: taskTagsList } : {}),
       });
     }
 
@@ -282,17 +310,19 @@ export function startWriteThrough(): void {
   _subscriptions.push(
     useEmployeesStore.subscribe(
       (state, prevState) => {
-        // Detect changed employees
-        for (const emp of state.employees) {
-          const prev = prevState.employees.find((e) => e.id === emp.id);
-          if (!prev || JSON.stringify(prev) !== JSON.stringify(emp)) {
-            employeesDb.upsert(emp);
+        // Detect changed employees — only admin/hr can write employee records
+        if (isAdminOrHr) {
+          for (const emp of state.employees) {
+            const prev = prevState.employees.find((e) => e.id === emp.id);
+            if (!prev || JSON.stringify(prev) !== JSON.stringify(emp)) {
+              employeesDb.upsert(emp);
+            }
           }
-        }
-        // Detect deletions
-        for (const prev of prevState.employees) {
-          if (!state.employees.find((e) => e.id === prev.id)) {
-            employeesDb.remove(prev.id);
+          // Detect deletions
+          for (const prev of prevState.employees) {
+            if (!state.employees.find((e) => e.id === prev.id)) {
+              employeesDb.remove(prev.id);
+            }
           }
         }
         // Salary requests
@@ -632,6 +662,18 @@ export function startWriteThrough(): void {
             tasksDb.insertComment(c);
           }
         }
+        // Task tags
+        for (const tag of state.taskTags) {
+          const prev = prevState.taskTags.find((pt) => pt.id === tag.id);
+          if (!prev || JSON.stringify(prev) !== JSON.stringify(tag)) {
+            tasksDb.upsertTag(tag);
+          }
+        }
+        for (const prev of prevState.taskTags) {
+          if (!state.taskTags.find((t) => t.id === prev.id)) {
+            tasksDb.deleteTag(prev.id);
+          }
+        }
       }
     )
   );
@@ -731,6 +773,15 @@ const MAX_RETRIES = 3;
 
 export function startRealtime(): void {
   if (!shouldSync()) return;
+
+  // Don't attempt realtime if Supabase credentials are not configured
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseKey) {
+    console.warn("[realtime] Skipped — Supabase credentials not configured");
+    return;
+  }
+
   stopRealtime();
 
   // Helper: wrap handler in try-catch so one handler error can't kill the channel
@@ -1342,13 +1393,19 @@ export function startRealtime(): void {
         }));
       })
     )
-    .subscribe((status, err) => {
+    .subscribe((status: string, err?: unknown) => {
       if (status === "SUBSCRIBED") {
         _realtimeRetries = 0;
         console.log("[realtime] Connected — watching 28 tables");
       }
       if (status === "CHANNEL_ERROR") {
-        console.error("[realtime] Channel error", err ?? "");
+        const errMsg = err instanceof Error ? err.message : (typeof err === "string" ? err : "");
+        if (!errMsg) {
+          // Empty error usually means misconfigured credentials — don't retry
+          console.warn("[realtime] Channel error (check Supabase URL/key configuration)");
+          return;
+        }
+        console.error("[realtime] Channel error", errMsg);
         // Auto-retry with backoff
         if (_realtimeRetries < MAX_RETRIES) {
           _realtimeRetries++;

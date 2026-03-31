@@ -18,7 +18,7 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import {
     Clock, LogIn, LogOut, Download, MapPin, CheckCircle, XCircle,
-    Navigation, ShieldCheck, Timer, Plus, ShieldAlert, Gauge, CalendarDays, RotateCcw, QrCode,
+    Navigation, ShieldCheck, Timer, Plus, ShieldAlert, Gauge, CalendarDays, RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { isWithinGeofence } from "@/lib/geofence";
@@ -27,6 +27,7 @@ import { SelfieCapture } from "@/components/attendance/selfie-capture";
 import { LocationTracker } from "@/components/attendance/location-tracker";
 import { BreakTimer } from "@/components/attendance/break-timer";
 import { EmployeeQRDisplay } from "@/components/attendance/employee-qr-display";
+import { stopWriteThrough, startWriteThrough, forceRehydrate } from "@/services/sync.service";
 
 type CheckInStep = "idle" | "locating" | "location_result" | "done" | "error" | "selfie" | "qr_scan";
 
@@ -157,7 +158,7 @@ const otStatusColor: Record<string, string> = {
    EMPLOYEE VIEW — immersive personal attendance dashboard
    ═══════════════════════════════════════════════════════════════ */
 export default function EmployeeView() {
-    const { logs, checkIn, checkOut, getTodayLog, overtimeRequests, submitOvertimeRequest, holidays, applyPenalty, getActivePenalty, cleanExpiredPenalties, resetTodayLog } = useAttendanceStore();
+    const { logs, checkIn, checkOut, getTodayLog, overtimeRequests, submitOvertimeRequest, holidays, applyPenalty, clearPenalty, getActivePenalty, cleanExpiredPenalties, resetTodayLog } = useAttendanceStore();
     const employees = useEmployeesStore((s) => s.employees);
     const currentUser = useAuthStore((s) => s.currentUser);
     const getProjectForEmployee = useProjectsStore((s) => s.getProjectForEmployee);
@@ -209,6 +210,10 @@ export default function EmployeeView() {
     const [spoofReason, setSpoofReason] = useState<string | null>(null);
     const [selfieDataUrl, setSelfieDataUrl] = useState<string | null>(null);
 
+    // ─── Check-out state ──────────────────────────────────────────
+    const [checkOutOpen, setCheckOutOpen] = useState(false);
+    const [checkOutStep, setCheckOutStep] = useState<"idle" | "verifying" | "done">("idle");
+
     // ─── OT state ─────────────────────────────────────────────────
     const [otOpen, setOtOpen] = useState(false);
     const [otDate, setOtDate] = useState("");
@@ -219,8 +224,8 @@ export default function EmployeeView() {
     const [penaltyRemainMs, setPenaltyRemainMs] = useState(0);
     const [devToolsOpen, setDevToolsOpen] = useState(false);
 
-    // Continuous devtools monitor — applies penalty on detection,
-    // clears the "open" UI flag when closed, but keeps the cooldown.
+    // Continuous devtools monitor — shows warning only; penalty is applied
+    // only when the employee actually attempts to check in.
     useEffect(() => {
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
         const t = setInterval(() => {
@@ -230,26 +235,11 @@ export default function EmployeeView() {
                 setPenaltyRemainMs(p ? Math.max(0, new Date(p.penaltyUntil).getTime() - Date.now()) : 0);
             }
             if (!isMobile) {
-                const open = isDesktopDevToolsOpen();
-                setDevToolsOpen(open);
-                if (open && penaltySettings.devOptionsPenaltyEnabled && myEmployeeId &&
-                    (penaltySettings.devOptionsPenaltyApplyTo === "devtools" || penaltySettings.devOptionsPenaltyApplyTo === "both")) {
-                    const existing = getActivePenalty(myEmployeeId);
-                    if (!existing) {
-                        const until = new Date(Date.now() + penaltySettings.devOptionsPenaltyMinutes * 60000).toISOString();
-                        applyPenalty({
-                            employeeId: myEmployeeId,
-                            reason: "Developer tools were opened. Check-in is locked for the penalty duration.",
-                            triggeredAt: new Date().toISOString(),
-                            penaltyUntil: until,
-                        });
-                        toast.error(`Developer tools detected. Locked out for ${penaltySettings.devOptionsPenaltyMinutes} minutes.`, { duration: 6000, id: "devtools-penalty" });
-                    }
-                }
+                setDevToolsOpen(isDesktopDevToolsOpen());
             }
         }, 1000);
         return () => clearInterval(t);
-    }, [cleanExpiredPenalties, myEmployeeId, getActivePenalty, applyPenalty, penaltySettings]);
+    }, [cleanExpiredPenalties, myEmployeeId, getActivePenalty, penaltySettings]);
     const activePenalty = myEmployeeId ? getActivePenalty(myEmployeeId) : undefined;
 
     // ─── Handlers ─────────────────────────────────────────────────
@@ -281,10 +271,22 @@ export default function EmployeeView() {
             toast.error(`Check-in locked for ${remaining} more minute${remaining !== 1 ? "s" : ""}. ${activePenalty.reason}`);
             return;
         }
-        // Penalty already applied by background monitor; extra guard for edge cases
+        // Apply penalty only when employee actually attempts check-in with devtools open
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
         if (!isMobile && devToolsOpen) {
-            toast.error("Please close Developer Tools before checking in.", { id: "devtools-block" });
+            if (penaltySettings.devOptionsPenaltyEnabled && myEmployeeId &&
+                (penaltySettings.devOptionsPenaltyApplyTo === "devtools" || penaltySettings.devOptionsPenaltyApplyTo === "both")) {
+                const until = new Date(now + penaltySettings.devOptionsPenaltyMinutes * 60000).toISOString();
+                applyPenalty({
+                    employeeId: myEmployeeId,
+                    reason: "Developer tools were open during a check-in attempt. Check-in is locked for the penalty duration.",
+                    triggeredAt: new Date().toISOString(),
+                    penaltyUntil: until,
+                });
+                toast.error(`Developer tools detected on check-in. Locked out for ${penaltySettings.devOptionsPenaltyMinutes} minutes.`, { duration: 6000, id: "devtools-penalty" });
+            } else {
+                toast.error("Please close Developer Tools before checking in.", { id: "devtools-block" });
+            }
             return;
         }
         const myEmp = employees.find((e) => e.id === myEmployeeId);
@@ -348,6 +350,20 @@ export default function EmployeeView() {
         );
     };
 
+    const handleCheckOutFaceVerified = useCallback(() => {
+        if (!myEmployeeId) return;
+        checkOut(myEmployeeId, myProject?.id);
+        setCheckOutStep("done");
+        toast.success("Checked out — see you tomorrow!");
+    }, [myEmployeeId, myProject, checkOut]);
+
+    const handleCheckOutQr = useCallback(() => {
+        if (!myEmployeeId) return;
+        checkOut(myEmployeeId, myProject?.id);
+        setCheckOutStep("done");
+        toast.success("QR check-out confirmed!");
+    }, [myEmployeeId, myProject, checkOut]);
+
     const handleFaceVerified = useCallback(() => {
         if (!myEmployeeId) return;
         checkIn(myEmployeeId, myProject?.id);
@@ -369,13 +385,21 @@ export default function EmployeeView() {
         setStep("done"); toast.success("Check-in successful!");
     }, [myEmployeeId, myProject, userLocation, selfieDataUrl, geoResult, checkIn, addPhoto]);
 
-    // QR scan completion — the employee shows their QR to the kiosk camera,
-    // then confirms here to record the attendance log.
+    // QR scan completion — record check-in on the employee's side too,
+    // so their dashboard reflects the attendance immediately.
     const handleQrCheckedIn = useCallback(() => {
         if (!myEmployeeId) return;
         checkIn(myEmployeeId, myProject?.id);
+        const todayStr = new Date().toISOString().split("T")[0];
+        const updatedLogs = useAttendanceStore.getState().logs.map((l) => {
+            if (l.employeeId === myEmployeeId && l.date === todayStr && l.checkIn) {
+                return { ...l, locationSnapshot: userLocation || undefined };
+            }
+            return l;
+        });
+        useAttendanceStore.setState({ logs: updatedLogs });
         setStep("done"); toast.success("QR check-in confirmed!");
-    }, [myEmployeeId, myProject, checkIn]);
+    }, [myEmployeeId, myProject, userLocation, checkIn]);
 
     // ─── Computed ─────────────────────────────────────────────────
     const greeting = useMemo(() => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"; }, []);
@@ -436,7 +460,7 @@ export default function EmployeeView() {
                             </div>
                             <div className="flex-1 text-center sm:text-left space-y-1">
                                 <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">Developer Tools Detected</p>
-                                <p className="text-xs text-muted-foreground">Close Developer Tools to remove this warning. Your cooldown penalty is still running.</p>
+                                <p className="text-xs text-muted-foreground">Close Developer Tools before checking in. Attempting to check in with DevTools open will trigger a penalty lockout.</p>
                             </div>
                         </CardContent>
                     </Card>
@@ -457,9 +481,7 @@ export default function EmployeeView() {
                                     <p className="text-sm font-semibold text-red-700 dark:text-red-400">Check-In Locked — Cooldown Active</p>
                                     <p className="text-xs text-muted-foreground">{activePenalty.reason}</p>
                                     <p className="text-xs text-red-600/80 dark:text-red-400/80">
-                                        {devToolsOpen
-                                            ? "Close Developer Tools. Cooldown resets only after closing DevTools."
-                                            : <>Unlocks in <span className="font-mono font-bold">{remainMin}m {String(remainSec).padStart(2, "0")}s</span></>}
+                                        <>Unlocks in <span className="font-mono font-bold">{remainMin}m {String(remainSec).padStart(2, "0")}s</span></>
                                     </p>
                                 </div>
                             </CardContent>
@@ -501,11 +523,11 @@ export default function EmployeeView() {
                         {todayLog?.checkIn && !todayLog?.checkOut && <ElapsedTimeDisplay checkInTime={todayLog.checkIn} />}
                         <div className="w-full sm:w-auto mt-1">
                             {!todayLog?.checkIn ? (
-                                <Button size="lg" onClick={startCheckIn} disabled={!!activePenalty || devToolsOpen} className="gap-2 w-full sm:w-auto sm:px-10 h-12 text-base rounded-xl shadow-md">
-                                    <LogIn className="h-5 w-5" /> {activePenalty ? "Locked" : devToolsOpen ? "DevTools Detected" : "Check In"}
+                                <Button size="lg" onClick={startCheckIn} disabled={!!activePenalty} className="gap-2 w-full sm:w-auto sm:px-10 h-12 text-base rounded-xl shadow-md">
+                                    <LogIn className="h-5 w-5" /> {activePenalty ? "Locked" : "Check In"}
                                 </Button>
                             ) : !todayLog?.checkOut ? (
-                                <Button size="lg" onClick={() => { checkOut(myEmployeeId, myProject?.id); toast.success("Checked out — see you tomorrow!"); }}
+                                <Button size="lg" onClick={() => { setCheckOutStep("idle"); setCheckOutOpen(true); }}
                                     variant="outline" className="gap-2 w-full sm:w-auto sm:px-10 h-12 text-base rounded-xl">
                                     <LogOut className="h-5 w-5" /> Check Out
                                 </Button>
@@ -696,8 +718,37 @@ export default function EmployeeView() {
                             variant="ghost"
                             size="sm"
                             className="gap-1.5 text-xs text-orange-500 hover:text-orange-600 hover:bg-orange-500/10 h-8"
-                            onClick={() => {
+                            onClick={async () => {
+                                // 1. Stop write-through so no NEW upserts are dispatched
+                                stopWriteThrough();
+                                // 2. Wait for any already-in-flight upserts to settle.
+                                //    write-through calls are fire-and-forget; without this wait
+                                //    a pending upsertLog() can land in Supabase AFTER the server
+                                //    deletes the row, silently recreating it.
+                                await new Promise((r) => setTimeout(r, 600));
+                                try {
+                                    const res = await fetch("/api/attendance/reset-today", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ employeeId: myEmployeeId }),
+                                    });
+                                    if (!res.ok) {
+                                        const data = await res.json().catch(() => ({}));
+                                        toast.error(data.message || "Failed to reset in database");
+                                        return;
+                                    }
+                                } catch {
+                                    toast.error("Network error — couldn't reset in database");
+                                    return;
+                                } finally {
+                                    // 2. Always restart write-through
+                                    startWriteThrough();
+                                }
+                                // 3. Clear local state + active penalty
                                 resetTodayLog(myEmployeeId);
+                                clearPenalty(myEmployeeId);
+                                // 4. Force re-hydration so store is guaranteed in sync with DB
+                                await forceRehydrate();
                                 toast.success("Today's attendance reset — ready to simulate again.");
                             }}
                         >
@@ -718,6 +769,50 @@ export default function EmployeeView() {
                         <div><label className="text-sm font-medium">Hours (1–8)</label><Input type="number" min="1" max="8" value={otHours} onChange={(e) => setOtHours(e.target.value)} className="mt-1" /></div>
                         <div><label className="text-sm font-medium">Reason</label><Input value={otReason} onChange={(e) => setOtReason(e.target.value)} placeholder="e.g. Project deadline" className="mt-1" /></div>
                         <Button onClick={handleSubmitOT} className="w-full">Submit Request</Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Check-Out Verification Dialog */}
+            <Dialog open={checkOutOpen} onOpenChange={setCheckOutOpen}>
+                <DialogContent className="max-w-sm w-[calc(100vw-2rem)] max-h-[90dvh] flex flex-col p-0">
+                    <DialogHeader className="px-4 pt-4 pb-2 shrink-0"><DialogTitle className="flex items-center gap-2"><LogOut className="h-5 w-5" /> Check Out</DialogTitle></DialogHeader>
+                    <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
+                        {checkOutStep === "idle" && (<>
+                            {myProject?.verificationMethod === "qr_only" ? (
+                                <div className="pt-1">
+                                    <p className="text-xs text-muted-foreground text-center mb-3">Scan your QR at the kiosk to check out</p>
+                                    <EmployeeQRDisplay
+                                        employeeId={myEmployeeId}
+                                        employeeName={currentUser.name}
+                                        onCheckedIn={handleCheckOutQr}
+                                    />
+                                </div>
+                            ) : (
+                                <div className="pt-1">
+                                    <p className="text-xs text-muted-foreground text-center mb-3">Verify your identity to check out</p>
+                                    <RealFaceVerification
+                                        onVerified={handleCheckOutFaceVerified}
+                                        autoStart
+                                        employeeId={myEmployeeId}
+                                        employeeName={currentUser.name}
+                                        required={myProject?.verificationMethod === "face_only"}
+                                    />
+                                </div>
+                            )}
+                        </>)}
+                        {checkOutStep === "done" && (
+                            <Card className="border border-emerald-500/30 bg-emerald-500/5">
+                                <CardContent className="p-6 flex flex-col items-center gap-3">
+                                    <div className="h-16 w-16 rounded-full bg-emerald-500/15 flex items-center justify-center"><CheckCircle className="h-8 w-8 text-emerald-500" /></div>
+                                    <p className="text-lg font-semibold text-emerald-700 dark:text-emerald-400">Checked Out!</p>
+                                    <p className="text-xs text-muted-foreground text-center">
+                                        {todayLog?.hours ? `${todayLog.hours}h logged today — great work!` : "Attendance recorded. See you tomorrow!"}
+                                    </p>
+                                    <Button variant="outline" size="sm" onClick={() => setCheckOutOpen(false)} className="mt-1">Close</Button>
+                                </CardContent>
+                            </Card>
+                        )}
                     </div>
                 </DialogContent>
             </Dialog>
@@ -781,15 +876,17 @@ export default function EmployeeView() {
                             {(!locationConfig.requireSelfie || selfieDataUrl) && myProject?.verificationMethod === "qr_only" && (
                                 <div className="pt-1">
                                     <p className="text-xs text-muted-foreground text-center mb-3">{locationConfig.requireSelfie ? "Step 3" : "Step 2"}: Scan QR at Kiosk</p>
-                                    <Button onClick={() => setStep("qr_scan")} className="w-full gap-1.5">
-                                        <QrCode className="h-4 w-4" /> Show My QR Code
-                                    </Button>
+                                    <EmployeeQRDisplay
+                                        employeeId={myEmployeeId}
+                                        employeeName={currentUser.name}
+                                        onCheckedIn={handleQrCheckedIn}
+                                    />
                                 </div>
                             )}
                             {(!locationConfig.requireSelfie || selfieDataUrl) && myProject?.verificationMethod !== "qr_only" && (
                                 <div className="pt-1">
                                     <p className="text-xs text-muted-foreground text-center mb-3">{locationConfig.requireSelfie ? "Step 3" : "Step 2"}: Verify your identity</p>
-                                    <RealFaceVerification onVerified={handleFaceVerified} autoStart employeeId={myEmployeeId} employeeName={currentUser.name} required={myProject?.verificationMethod === "face_only" || myProject?.verificationMethod === "face_or_qr"} />
+                                    <RealFaceVerification onVerified={handleFaceVerified} autoStart employeeId={myEmployeeId} employeeName={currentUser.name} required={myProject?.verificationMethod === "face_only"} />
                                 </div>
                             )}
                         </>)}

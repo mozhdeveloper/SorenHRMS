@@ -387,15 +387,15 @@ describe("DB Mappers", () => {
     // ── parseSegments ───────────────────────────────────────
     describe("parseSegments", () => {
         it("should return array input as-is", () => {
-            const segments = [{ type: "work", start: "09:00", end: "12:00" }];
+            const segments = [{ segmentType: "work", start: "09:00", end: "12:00" }];
             expect(parseSegments(segments)).toEqual(segments);
         });
 
         it("should parse valid JSON string", () => {
-            const json = JSON.stringify([{ type: "break", start: "12:00", end: "13:00" }]);
+            const json = JSON.stringify([{ segmentType: "break", start: "12:00", end: "13:00" }]);
             const result = parseSegments(json);
             expect(result).toHaveLength(1);
-            expect(result[0].type).toBe("break");
+            expect(result[0].segmentType).toBe("break");
         });
 
         it("should return empty array for invalid JSON string", () => {

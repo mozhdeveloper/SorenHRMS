@@ -41,7 +41,7 @@ import { Slider } from "@/components/ui/slider";
 import { nanoid } from "nanoid";
 import { Search, SlidersHorizontal, Eye, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, UserMinus, Pencil, Mail, MapPin, Phone, Cake, DollarSign, RefreshCw, KeyRound, ShieldCheck, Briefcase, User, FolderKanban, Clock, Heart, Users } from "lucide-react";
 import { getInitials, formatCurrency, formatDate } from "@/lib/format";
-import { DEPARTMENTS, ROLES, LOCATIONS } from "@/lib/constants";
+import { DEPARTMENTS, ROLES } from "@/lib/constants";
 import Link from "next/link";
 import { useRoleHref } from "@/lib/hooks/use-role-href";
 import { toast } from "sonner";
@@ -76,7 +76,7 @@ export default function AdminEmployeesView() {
     const { getActiveByEmployee } = useLoansStore();
     const { getEmployeeBalances } = useLeaveStore();
     const { projects, assignEmployee: assignToProject, removeEmployee: removeFromProject, getProjectForEmployee } = useProjectsStore();
-    const shiftTemplates = useAttendanceStore((s) => s.shiftTemplates);
+    const { shiftTemplates, assignShift, unassignShift } = useAttendanceStore();
     const { hasPermission } = useRolesStore();
     const rh = useRoleHref();
     const canManage = hasPermission(currentUser.role, "employees:edit");
@@ -161,7 +161,6 @@ export default function AdminEmployeesView() {
     const [newWorkType, setNewWorkType] = useState<WorkType>("WFO");
     const [newSalary, setNewSalary] = useState("");
     const [newPhone, setNewPhone] = useState("");
-    const [newLocation, setNewLocation] = useState("");
     const [newPayFreq, setNewPayFreq] = useState<string>("company");
     const [newSystemRole, setNewSystemRole] = useState<Role>("employee");
     const [newPassword, setNewPassword] = useState("");
@@ -177,6 +176,8 @@ export default function AdminEmployeesView() {
     const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const toggleWorkDay = (day: string) =>
         setNewWorkDays((prev) => prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]);
+    const toggleEditWorkDay = (day: string) =>
+        setEditWorkDays((prev) => prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]);
 
     const generatePassword = () => {
         const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#";
@@ -195,8 +196,8 @@ export default function AdminEmployeesView() {
     const [editWorkType, setEditWorkType] = useState<WorkType>("WFO");
     const [editSalary, setEditSalary] = useState("");
     const [editPhone, setEditPhone] = useState("");
-    const [editLocation, setEditLocation] = useState("");
     const [editProductivity, setEditProductivity] = useState("80");
+    const [editWorkDays, setEditWorkDays] = useState<string[]>(["Mon", "Tue", "Wed", "Thu", "Fri"]);
     const [editProjectId, setEditProjectId] = useState<string>("");
     const [editPayFreq, setEditPayFreq] = useState<string>("company");
     const [editBirthday, setEditBirthday] = useState("");
@@ -282,7 +283,7 @@ export default function AdminEmployeesView() {
         addEmployee({
             id, name: newName, email: newEmail, role: newRole, department: newDept, workType: newWorkType,
             salary: Number(newSalary) || 0, joinDate: new Date().toISOString().split("T")[0], productivity: 80,
-            status: "active", location: newLocation || "New York", phone: newPhone || undefined,
+            status: "active", location: "", phone: newPhone || undefined,
             workDays: newWorkDays.length ? newWorkDays : undefined,
             birthday: newBirthday || undefined,
             teamLeader: newTeamLeader !== "none" ? newTeamLeader : undefined,
@@ -310,15 +311,18 @@ export default function AdminEmployeesView() {
             }
         } else toast.success(`${newName} added successfully!`);
         if (newProjectId && newProjectId !== "none") assignToProject(newProjectId, id);
-        setNewName(""); setNewEmail(""); setNewRole(""); setNewDept(""); setNewWorkType("WFO"); setNewSalary(""); setNewPhone(""); setNewLocation(""); setNewPayFreq("company"); setNewSystemRole("employee"); setNewPassword(""); setNewMustChange(true); setNewWorkDays(["Mon", "Tue", "Wed", "Thu", "Fri"]); setNewProjectId("none"); setNewBirthday(""); setNewTeamLeader("none"); setNewShiftId("none"); setNewEmergencyContact(""); setNewAddress("");
+        // Sync shift assignment to attendance store
+        if (newShiftId && newShiftId !== "none") assignShift(id, newShiftId);
+        setNewName(""); setNewEmail(""); setNewRole(""); setNewDept(""); setNewWorkType("WFO"); setNewSalary(""); setNewPhone(""); setNewPayFreq("company"); setNewSystemRole("employee"); setNewPassword(""); setNewMustChange(true); setNewWorkDays(["Mon", "Tue", "Wed", "Thu", "Fri"]); setNewProjectId("none"); setNewBirthday(""); setNewTeamLeader("none"); setNewShiftId("none"); setNewEmergencyContact(""); setNewAddress("");
         setAddOpen(false);
         setAddingEmployee(false);
     };
 
     const handleOpenEdit = (emp: Employee) => {
         setEditingEmp(emp); setEditName(emp.name); setEditEmail(emp.email); setEditRole(emp.role); setEditDept(emp.department);
-        setEditWorkType(emp.workType); setEditSalary(String(emp.salary)); setEditPhone(emp.phone || ""); setEditLocation(emp.location);
+        setEditWorkType(emp.workType); setEditSalary(String(emp.salary)); setEditPhone(emp.phone || "");
         setEditProductivity(String(emp.productivity)); setEditPayFreq(emp.payFrequency || "company");
+        setEditWorkDays(emp.workDays || ["Mon", "Tue", "Wed", "Thu", "Fri"]);
         setEditBirthday(emp.birthday || ""); setEditTeamLeader(emp.teamLeader || "none"); setEditShiftId(emp.shiftId || "none");
         setEditEmergencyContact(emp.emergencyContact || ""); setEditAddress(emp.address || "");
         const currentProject = getProjectForEmployee(emp.id);
@@ -331,14 +335,18 @@ export default function AdminEmployeesView() {
         if (employees.some((e) => e.id !== editingEmp.id && e.email.toLowerCase() === editEmail.toLowerCase())) { toast.error("An employee with this email already exists"); return; }
         updateEmployee(editingEmp.id, {
             name: editName, email: editEmail, role: editRole, department: editDept, workType: editWorkType,
-            salary: Number(editSalary) || 0, phone: editPhone || undefined, location: editLocation,
+            salary: Number(editSalary) || 0, phone: editPhone || undefined,
             productivity: Number(editProductivity) || 80, payFrequency: editPayFreq !== "company" ? editPayFreq as PayFrequency : undefined,
             birthday: editBirthday || undefined,
             teamLeader: editTeamLeader !== "none" ? editTeamLeader : undefined,
             shiftId: editShiftId !== "none" ? editShiftId : undefined,
+            workDays: editWorkDays.length ? editWorkDays : undefined,
             emergencyContact: editEmergencyContact || undefined,
             address: editAddress || undefined,
         });
+        // Sync shift assignment to attendance store
+        if (editShiftId !== "none") assignShift(editingEmp.id, editShiftId);
+        else unassignShift(editingEmp.id);
         const currentProject = getProjectForEmployee(editingEmp.id);
         if (currentProject && currentProject.id !== editProjectId) removeFromProject(currentProject.id, editingEmp.id);
         if (editProjectId && editProjectId !== "none" && (!currentProject || currentProject.id !== editProjectId)) assignToProject(editProjectId, editingEmp.id);
@@ -389,17 +397,11 @@ export default function AdminEmployeesView() {
                                             </div>
                                             <div className="grid grid-cols-2 gap-3">
                                                 <div><label className="text-xs font-medium text-muted-foreground">Phone</label><Input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="+63 912 345 6789" className="mt-1 h-8 text-sm" /></div>
-                                                <div><label className="text-xs font-medium text-muted-foreground">Office Location</label>
-                                                    <Select value={newLocation} onValueChange={setNewLocation}><SelectTrigger className="mt-1 h-8 text-sm"><SelectValue placeholder="Select office" /></SelectTrigger><SelectContent>{LOCATIONS.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent></Select>
-                                                </div>
+                                                <div><label className="text-xs font-medium text-muted-foreground">Emergency Contact</label><Input value={newEmergencyContact} onChange={(e) => setNewEmergencyContact(e.target.value)} placeholder="Name / Phone" className="mt-1 h-8 text-sm" /></div>
                                             </div>
                                             <div className="grid grid-cols-2 gap-3">
                                                 <div><label className="text-xs font-medium text-muted-foreground">Birthday</label><Input type="date" value={newBirthday} onChange={(e) => setNewBirthday(e.target.value)} className="mt-1 h-8 text-sm" /></div>
-                                                <div><label className="text-xs font-medium text-muted-foreground">Emergency Contact</label><Input value={newEmergencyContact} onChange={(e) => setNewEmergencyContact(e.target.value)} placeholder="Name / Phone" className="mt-1 h-8 text-sm" /></div>
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-medium text-muted-foreground">Address</label>
-                                                <Input value={newAddress} onChange={(e) => setNewAddress(e.target.value)} placeholder="Home address" className="mt-1 h-8 text-sm" />
+                                                <div><label className="text-xs font-medium text-muted-foreground">Address</label><Input value={newAddress} onChange={(e) => setNewAddress(e.target.value)} placeholder="Home address" className="mt-1 h-8 text-sm" /></div>
                                             </div>
                                         </div>
                                     </div>
@@ -543,7 +545,7 @@ export default function AdminEmployeesView() {
                                 </div>
                                 <div className="grid grid-cols-3 gap-3">
                                     <div><label className="text-sm font-medium">Work Type</label>
-                                        <Select value={editWorkType} onValueChange={(v) => setEditWorkType(v as WorkType)}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="WFO">WFO</SelectItem><SelectItem value="WFH">WFH</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem></SelectContent></Select>
+                                        <Select value={editWorkType} onValueChange={(v) => setEditWorkType(v as WorkType)}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="WFO">Work From Office</SelectItem><SelectItem value="WFH">Work From Home</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem><SelectItem value="ONSITE">Full Onsite</SelectItem></SelectContent></Select>
                                     </div>
                                     <div><label className="text-sm font-medium">Monthly Salary (₱)</label><Input type="number" value={editSalary} onChange={(e) => setEditSalary(e.target.value)} className="mt-1" /></div>
                                     <div><label className="text-sm font-medium">Pay Frequency</label>
@@ -551,13 +553,10 @@ export default function AdminEmployeesView() {
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <div><label className="text-sm font-medium">Location</label>
-                                        <Select value={editLocation} onValueChange={setEditLocation}><SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{LOCATIONS.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent></Select>
-                                    </div>
                                     <div><label className="text-sm font-medium">Phone</label><Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} className="mt-1" /></div>
+                                    <div><label className="text-sm font-medium">Emergency Contact</label><Input value={editEmergencyContact} onChange={(e) => setEditEmergencyContact(e.target.value)} placeholder="Name / Phone" className="mt-1" /></div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <div><label className="text-sm font-medium">Birthday</label><Input type="date" value={editBirthday} onChange={(e) => setEditBirthday(e.target.value)} className="mt-1" /></div>
                                     <div><label className="text-sm font-medium">Productivity (%)</label><Input type="number" min="0" max="100" value={editProductivity} onChange={(e) => setEditProductivity(e.target.value)} className="mt-1" /></div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
@@ -569,8 +568,26 @@ export default function AdminEmployeesView() {
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <div><label className="text-sm font-medium">Emergency Contact</label><Input value={editEmergencyContact} onChange={(e) => setEditEmergencyContact(e.target.value)} placeholder="Name / Phone" className="mt-1" /></div>
                                     <div><label className="text-sm font-medium">Address</label><Input value={editAddress} onChange={(e) => setEditAddress(e.target.value)} placeholder="Home address" className="mt-1" /></div>
+                                    <div><label className="text-sm font-medium">Birthday</label><Input type="date" value={editBirthday} onChange={(e) => setEditBirthday(e.target.value)} className="mt-1" /></div>
+                                </div>
+                                {/* Work Days */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="text-sm font-medium">Work Days</label>
+                                        <div className="flex items-center gap-1">
+                                            {[{ label: "Mon–Fri", days: ["Mon","Tue","Wed","Thu","Fri"] }, { label: "Mon–Sat", days: ["Mon","Tue","Wed","Thu","Fri","Sat"] }, { label: "All 7", days: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] }].map(({ label, days }) => (
+                                                <button key={label} type="button" onClick={() => setEditWorkDays(days)} className="px-2 py-0.5 text-[10px] font-medium rounded border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">{label}</button>
+                                            ))}
+                                            <button type="button" onClick={() => setEditWorkDays([])} className="px-2 py-0.5 text-[10px] font-medium rounded border border-dashed border-muted-foreground/30 text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors">Clear</button>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-1.5">
+                                        {WEEK_DAYS.map((day) => (
+                                            <button key={day} type="button" onClick={() => toggleEditWorkDay(day)} className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-all ${editWorkDays.includes(day) ? "bg-primary text-primary-foreground border-primary shadow-sm" : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"}`}>{day}</button>
+                                        ))}
+                                    </div>
+                                    {editWorkDays.length > 0 && <p className="text-[11px] text-muted-foreground mt-1.5">{editWorkDays.length} day{editWorkDays.length !== 1 ? "s" : ""} selected &mdash; {editWorkDays.join(", ")}</p>}
                                 </div>
                                 <div>
                                     <label className="text-sm font-medium">Assigned Project</label>
@@ -693,14 +710,14 @@ export default function AdminEmployeesView() {
                                                                     </AlertDialogContent>
                                                                 </AlertDialog>
                                                             )}
-                                                            {canManage && emp.status === "inactive" && (
+                                                            {canManage && emp.id !== currentUser.id && (
                                                                 <AlertDialog>
-                                                                    <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-500/10"><Trash2 className="h-3.5 w-3.5" /></Button></AlertDialogTrigger>
+                                                                    <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-500/10" title="Delete"><Trash2 className="h-3.5 w-3.5" /></Button></AlertDialogTrigger>
                                                                     <AlertDialogContent>
-                                                                        <AlertDialogHeader><AlertDialogTitle>Delete Employee</AlertDialogTitle><AlertDialogDescription>Are you sure you want to permanently remove <strong>{emp.name}</strong>? This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                                                                        <AlertDialogHeader><AlertDialogTitle>Delete Employee</AlertDialogTitle><AlertDialogDescription>Are you sure you want to permanently remove <strong>{emp.name}</strong>{emp.status === "active" ? " (currently active)" : ""}? This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
                                                                         <AlertDialogFooter>
                                                                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => { removeEmployee(emp.id); toast.success(`${emp.name} removed`); }}>Delete</AlertDialogAction>
+                                                                            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => { removeEmployee(emp.id); useAuditStore.getState().log({ entityType: "employee", entityId: emp.id, action: "employee_deleted", performedBy: currentUser.id }); toast.success(`${emp.name} removed`); }}>Delete</AlertDialogAction>
                                                                         </AlertDialogFooter>
                                                                     </AlertDialogContent>
                                                                 </AlertDialog>

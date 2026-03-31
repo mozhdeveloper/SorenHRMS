@@ -22,7 +22,7 @@ import dynamic from "next/dynamic";
 import { getInitials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { sendNotification } from "@/lib/notifications";
-import { FolderKanban, Plus, MapPin, UserPlus, Trash2, ScanFace, QrCode, UserCheck, Settings2, Pencil } from "lucide-react";
+import { FolderKanban, Plus, MapPin, UserPlus, Trash2, ScanFace, QrCode, UserCheck, Pencil } from "lucide-react";
 import type { Project, VerificationMethod } from "@/types";
 
 const MapSelector = dynamic(
@@ -42,7 +42,7 @@ export default function AdminProjectsView() {
     const [lng, setLng] = useState("");
     const [radius, setRadius] = useState("100");
     const [locationAddress, setLocationAddress] = useState("");
-    const [verificationMethod, setVerificationMethod] = useState<VerificationMethod>("face_or_qr");
+    const [verificationMethod, setVerificationMethod] = useState<VerificationMethod>("face_only");
 
     const [assignOpen, setAssignOpen] = useState(false);
     const [assignProjectId, setAssignProjectId] = useState<string | null>(null);
@@ -57,7 +57,7 @@ export default function AdminProjectsView() {
     const [editLng, setEditLng] = useState("");
     const [editRadius, setEditRadius] = useState("100");
     const [editLocationAddress, setEditLocationAddress] = useState("");
-    const [editVerificationMethod, setEditVerificationMethod] = useState<VerificationMethod>("face_or_qr");
+    const [editVerificationMethod, setEditVerificationMethod] = useState<VerificationMethod>("face_only");
 
     const openEditDialog = (project: Project) => {
         setEditProject(project);
@@ -67,7 +67,7 @@ export default function AdminProjectsView() {
         setEditLng(String(project.location.lng));
         setEditRadius(String(project.location.radius));
         setEditLocationAddress(project.location.address || "");
-        setEditVerificationMethod(project.verificationMethod || "face_or_qr");
+        setEditVerificationMethod(project.verificationMethod || "face_only");
         setEditOpen(true);
     };
 
@@ -89,7 +89,7 @@ export default function AdminProjectsView() {
         if (!name || !lat || !lng) { toast.error("Please fill all required fields"); return; }
         addProject({ name, description, location: { lat: Number(lat), lng: Number(lng), radius: Number(radius) || 100, address: locationAddress || undefined }, assignedEmployeeIds: [], verificationMethod });
         toast.success(`Project "${name}" created!`);
-        setName(""); setDescription(""); setLat(""); setLng(""); setRadius("100"); setLocationAddress(""); setVerificationMethod("face_or_qr");
+        setName(""); setDescription(""); setLat(""); setLng(""); setRadius("100"); setLocationAddress(""); setVerificationMethod("face_only");
         setAddOpen(false);
     };
 
@@ -172,7 +172,6 @@ export default function AdminProjectsView() {
                                     <SelectContent>
                                         <SelectItem value="face_only">Face Recognition Only</SelectItem>
                                         <SelectItem value="qr_only">QR Code Only</SelectItem>
-                                        <SelectItem value="face_or_qr">Face OR QR (Employee Choice)</SelectItem>
                                         <SelectItem value="manual_only">Manual Check-in Only</SelectItem>
                                     </SelectContent>
                                 </Select>
@@ -242,7 +241,7 @@ export default function AdminProjectsView() {
                                             </Select>
                                         </TableCell>
                                         <TableCell>
-                                            <VerificationBadge method={project.verificationMethod || "face_or_qr"} onUpdate={(m) => updateProject(project.id, { verificationMethod: m })} />
+                                            <VerificationBadge method={project.verificationMethod || "face_only"} onUpdate={(m) => updateProject(project.id, { verificationMethod: m })} />
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex items-center gap-1">
@@ -339,7 +338,6 @@ export default function AdminProjectsView() {
                                 <SelectContent>
                                     <SelectItem value="face_only">Face Recognition Only</SelectItem>
                                     <SelectItem value="qr_only">QR Code Only</SelectItem>
-                                    <SelectItem value="face_or_qr">Face OR QR (Employee Choice)</SelectItem>
                                     <SelectItem value="manual_only">Manual Check-in Only</SelectItem>
                                 </SelectContent>
                             </Select>
@@ -360,12 +358,11 @@ export default function AdminProjectsView() {
 const VERIFICATION_META: Record<VerificationMethod, { label: string; icon: React.ElementType; color: string }> = {
     face_only: { label: "Face", icon: ScanFace, color: "bg-violet-500/15 text-violet-700 dark:text-violet-400" },
     qr_only: { label: "QR", icon: QrCode, color: "bg-blue-500/15 text-blue-700 dark:text-blue-400" },
-    face_or_qr: { label: "Face / QR", icon: Settings2, color: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" },
     manual_only: { label: "Manual", icon: UserCheck, color: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
 };
 
 function VerificationBadge({ method, onUpdate }: { method: VerificationMethod; onUpdate: (m: VerificationMethod) => void }) {
-    const meta = VERIFICATION_META[method] || VERIFICATION_META.face_or_qr;
+    const meta = VERIFICATION_META[method] || VERIFICATION_META.face_only;
     const Icon = meta.icon;
     return (
         <Select value={method} onValueChange={(v) => onUpdate(v as VerificationMethod)}>
@@ -376,7 +373,6 @@ function VerificationBadge({ method, onUpdate }: { method: VerificationMethod; o
             <SelectContent>
                 <SelectItem value="face_only"><span className="flex items-center gap-1.5"><ScanFace className="h-3 w-3" /> Face Only</span></SelectItem>
                 <SelectItem value="qr_only"><span className="flex items-center gap-1.5"><QrCode className="h-3 w-3" /> QR Only</span></SelectItem>
-                <SelectItem value="face_or_qr"><span className="flex items-center gap-1.5"><Settings2 className="h-3 w-3" /> Face / QR</span></SelectItem>
                 <SelectItem value="manual_only"><span className="flex items-center gap-1.5"><UserCheck className="h-3 w-3" /> Manual</span></SelectItem>
             </SelectContent>
         </Select>

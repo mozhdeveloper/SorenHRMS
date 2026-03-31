@@ -498,6 +498,12 @@ export const useAttendanceStore = create<AttendanceState>()(
                     logs: s.logs.filter(
                         (l) => !(l.employeeId === employeeId && l.date === today)
                     ),
+                    events: s.events.filter((e) => {
+                        if (e.employeeId !== employeeId) return true;
+                        // Handle both `timestampUTC` (local) and `timestampUtc` (stale DB hydration)
+                        const ts: string = e.timestampUTC ?? (e as unknown as Record<string, string>).timestampUtc ?? "";
+                        return !ts.startsWith(today);
+                    }),
                 }));
             },
 
@@ -516,13 +522,25 @@ export const useAttendanceStore = create<AttendanceState>()(
         }),
         {
             name: "nexhrms-attendance",
-            version: 4,
+            version: 5,
             migrate: (persistedState: unknown, version: number) => {
                 const state = (persistedState ?? {}) as Record<string, unknown>;
                 if (version < 4) {
                     // v3 → v4: holidays field was added
                     if (!state.holidays) {
                         state.holidays = DEFAULT_HOLIDAYS.map((h, i) => ({ ...h, id: `HOL-${i + 1}` }));
+                    }
+                }
+                if (version < 5) {
+                    // v4 → v5: normalize events with timestampUtc → timestampUTC
+                    if (Array.isArray(state.events)) {
+                        state.events = (state.events as Record<string, unknown>[]).map((e) => {
+                            if (e.timestampUtc !== undefined && e.timestampUTC === undefined) {
+                                e.timestampUTC = e.timestampUtc;
+                                delete e.timestampUtc;
+                            }
+                            return e;
+                        });
                     }
                 }
                 return state;

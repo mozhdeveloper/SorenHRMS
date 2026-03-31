@@ -26,6 +26,9 @@ export async function loadFaceModels(): Promise<void> {
   if (modelsLoaded) return;
   if (modelsLoading) return modelsLoading;
 
+  console.log("[face-api] Loading face models from", MODEL_URL);
+  const startTime = performance.now();
+
   modelsLoading = (async () => {
     await Promise.all([
       faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
@@ -33,6 +36,7 @@ export async function loadFaceModels(): Promise<void> {
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
     ]);
     modelsLoaded = true;
+    console.log(`[face-api] Models loaded in ${(performance.now() - startTime).toFixed(0)}ms (SSD MobileNet + Landmarks + Recognition)`);
   })();
 
   return modelsLoading;
@@ -70,10 +74,17 @@ export async function detectFace(
     .withFaceLandmarks()
     .withFaceDescriptor();
 
-  if (!result) return null;
+  if (!result) {
+    console.debug("[face-api] detectFace: no face found (minConfidence=0.6)");
+    return null;
+  }
+
+  const desc = Array.from(result.descriptor);
+  const norm = Math.sqrt(desc.reduce((s, v) => s + v * v, 0));
+  console.debug(`[face-api] detectFace: score=${result.detection.score.toFixed(3)} box=${Math.round(result.detection.box.width)}x${Math.round(result.detection.box.height)} embNorm=${norm.toFixed(4)}`);
 
   return {
-    descriptor: Array.from(result.descriptor),
+    descriptor: desc,
     score: result.detection.score,
     box: {
       x: result.detection.box.x,
@@ -88,6 +99,9 @@ export async function detectFace(
  * Average multiple 128-d descriptors into a single representative descriptor.
  * Averaging reduces noise from single-frame detection jitter and produces a
  * more stable embedding for verification.
+ *
+ * The result is L2-normalized to unit length for consistent distance
+ * computation with the server-side matching (which also L2-normalizes).
  */
 export function averageDescriptors(descriptors: number[][]): number[] {
   if (descriptors.length === 0) return [];
@@ -98,7 +112,34 @@ export function averageDescriptors(descriptors: number[][]): number[] {
     for (let i = 0; i < dim; i++) avg[i] += desc[i];
   }
   for (let i = 0; i < dim; i++) avg[i] /= descriptors.length;
+
+  // L2-normalize the averaged descriptor
+  let norm = 0;
+  for (let i = 0; i < dim; i++) norm += avg[i] * avg[i];
+  norm = Math.sqrt(norm);
+  if (norm > 0) {
+    for (let i = 0; i < dim; i++) avg[i] /= norm;
+  }
+
   return avg;
+}
+
+/**
+ * Compute the consistency of a set of descriptors by measuring
+ * average pairwise distance. Low values mean consistent detections.
+ * Returns average pairwise euclidean distance.
+ */
+export function descriptorConsistency(descriptors: number[][]): number {
+  if (descriptors.length < 2) return 0;
+  let total = 0;
+  let count = 0;
+  for (let i = 0; i < descriptors.length; i++) {
+    for (let j = i + 1; j < descriptors.length; j++) {
+      total += computeDistance(descriptors[i], descriptors[j]);
+      count++;
+    }
+  }
+  return total / count;
 }
 
 /**
@@ -146,3 +187,71 @@ export function computeDistance(desc1: number[], desc2: number[]): number {
  * inter-person distance usually > 0.9. 0.75 balances accuracy vs convenience.
  */
 export const FACE_MATCH_THRESHOLD = 0.75;
+
+// ─── Lightweight tracking (no descriptor computation) ────────────────────────
+
+export interface FaceTrackingResult {
+  /** Detection confidence score (0-1) */
+  score: number;
+  /** Bounding box of detected face */
+  box: { x: number; y: number; width: number; height: number };
+  /** Estimated head yaw: negative = turned left, positive = turned right, 0 = front */
+  yaw: number;
+  /** Number of faces detected */
+  faceCount: number;
+}
+
+/**
+ * Fast face tracking without descriptor computation (~3-5x faster than detectFace).
+ * Returns bounding box, confidence, estimated head yaw, and face count.
+ * Used for real-time UI guidance during enrollment/verification.
+ */
+export async function detectFaceQuick(
+  input: HTMLVideoElement | HTMLCanvasElement | HTMLImageElement,
+): Promise<FaceTrackingResult | null> {
+  if (!modelsLoaded) {
+    await loadFaceModels();
+  }
+
+  const allResults = await faceapi
+    .detectAllFaces(input, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4 }))
+    .withFaceLandmarks();
+
+  if (!allResults.length) {
+    console.debug("[face-api] detectFaceQuick: no faces found (minConfidence=0.4)");
+    return null;
+  }
+
+  // Use the largest/most-confident face
+  const best = allResults.reduce((a, b) =>
+    a.detection.score > b.detection.score ? a : b
+  );
+
+  // Estimate yaw from landmarks: compare nose tip X vs face center X
+  // Landmark indices: nose tip = 30, jaw left = 0, jaw right = 16
+  const landmarks = best.landmarks.positions;
+  const noseTip = landmarks[30];
+  const jawLeft = landmarks[0];
+  const jawRight = landmarks[16];
+
+  const faceCenterX = (jawLeft.x + jawRight.x) / 2;
+  const faceWidth = jawRight.x - jawLeft.x;
+
+  // Yaw: normalized offset of nose from face center (-1 to +1)
+  // On raw front-camera video: Negative = user turned RIGHT, Positive = user turned LEFT
+  const yaw = faceWidth > 0 ? (noseTip.x - faceCenterX) / (faceWidth * 0.5) : 0;
+
+  console.debug(`[face-api] detectFaceQuick: faces=${allResults.length} score=${best.detection.score.toFixed(3)} yaw=${yaw.toFixed(2)} box=${Math.round(best.detection.box.width)}x${Math.round(best.detection.box.height)}`);
+
+  return {
+    score: best.detection.score,
+    box: {
+      x: best.detection.box.x,
+      y: best.detection.box.y,
+      width: best.detection.box.width,
+      height: best.detection.box.height,
+    },
+    yaw,
+    faceCount: allResults.length,
+  };
+}

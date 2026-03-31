@@ -46,7 +46,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
         if (!mounted || !isAuthenticated) return;
 
         const supabase = createClient();
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event: string) => {
             if (event === "SIGNED_OUT") {
                 stopRealtime();
                 stopWriteThrough();
@@ -69,7 +69,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
 
     const isLoginPage = pathname === "/login";
     const isRoot      = pathname === "/";
-    const isKiosk     = pathname === "/kiosk";
+    const isKiosk     = pathname === "/kiosk" || pathname.startsWith("/kiosk/");
     const skipShell   = isLoginPage || isRoot || isKiosk;
 
     // Show spinner until React has mounted on the client (prevents hydration mismatch)

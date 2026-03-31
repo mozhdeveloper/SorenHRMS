@@ -35,10 +35,11 @@ export type AuditAction =
   | "payroll_locked" | "payroll_published" | "payroll_paid"
   | "adjustment_created" | "adjustment_approved" | "adjustment_applied"
   | "loan_created" | "loan_frozen" | "loan_unfrozen" | "loan_settled"
-  | "payment_recorded" | "employee_resigned" | "final_pay_created"
+  | "payment_recorded" | "employee_resigned" | "employee_deleted" | "final_pay_created"
   | "timesheet_approved" | "timesheet_rejected"
   | "kiosk_registered" | "attendance_correction"
   | "task_created" | "task_assigned" | "task_completed" | "task_verified" | "task_rejected"
+  | "tag_created" | "tag_updated" | "tag_deleted"
   | "announcement_sent" | "channel_created";
 
 // ─── Holiday Type ────────────────────────────────────────────
@@ -797,6 +798,7 @@ export interface TaskGroup {
 export interface Task {
   id: string;
   groupId: string;
+  projectId?: string;
   title: string;
   description: string;
   priority: TaskPriority;
@@ -832,6 +834,14 @@ export interface TaskComment {
   employeeId: string;
   message: string;
   attachmentUrl?: string;
+  createdAt: string;
+}
+
+export interface TaskTag {
+  id: string;
+  name: string;
+  color: string;
+  createdBy: string;
   createdAt: string;
 }
 
@@ -880,7 +890,7 @@ export interface ChannelMessage {
 
 // ─── Kiosk Face Recognition & Enhanced Attendance ────────────────────────────
 
-export type VerificationMethod = "face_only" | "qr_only" | "face_or_qr" | "manual_only";
+export type VerificationMethod = "face_only" | "qr_only" | "manual_only";
 
 export interface FaceEnrollment {
   id: string;

@@ -1,622 +1,763 @@
-"use client";
+﻿"use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useTasksStore } from "@/store/tasks.store";
 import { useEmployeesStore } from "@/store/employees.store";
-import { useProjectsStore } from "@/store/projects.store";
 import { useAuthStore } from "@/store/auth.store";
+import { useProjectsStore } from "@/store/projects.store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-    Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
-} from "@/components/ui/dialog";
-import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Switch } from "@/components/ui/switch";
+import {
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+    DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+    DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { getInitials, formatDate } from "@/lib/format";
-import { toast } from "sonner";
 import { useRoleHref } from "@/lib/hooks/use-role-href";
 import Link from "next/link";
+import { toast } from "sonner";
 import {
-    ListTodo, Plus, Users, FolderKanban, Clock, CheckCircle2, XCircle,
-    AlertTriangle, ArrowUpRight, Search, Filter, Trash2, Eye, Pencil,
+    ListTodo, CheckCircle2, Clock, Eye, AlertTriangle, BarChart3,
+    Plus, Search, MoreHorizontal, Pencil, Trash2, Users, FolderOpen,
+    ArrowUpDown, Filter, XCircle, ChevronRight,
+    Layers, LayoutGrid, Table2, FolderPlus, Send, Tag, Briefcase, RefreshCw, Hash,
 } from "lucide-react";
-import type { Task, TaskStatus, TaskPriority, AnnouncementPermission } from "@/types";
+import type { Task, TaskStatus, TaskPriority, TaskGroup, TaskTag } from "@/types";
 
-const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; icon: typeof CheckCircle2 }> = {
-    open: { label: "Open", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", icon: Clock },
-    in_progress: { label: "In Progress", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400", icon: ArrowUpRight },
-    submitted: { label: "Submitted", color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400", icon: Eye },
+// ── Status & Priority Config ──────────────────────────────────
+
+const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; icon: typeof ListTodo }> = {
+    open: { label: "Open", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", icon: ListTodo },
+    in_progress: { label: "In Progress", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400", icon: Clock },
+    submitted: { label: "Submitted", color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400", icon: Send },
     verified: { label: "Verified", color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", icon: CheckCircle2 },
     rejected: { label: "Rejected", color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400", icon: XCircle },
     cancelled: { label: "Cancelled", color: "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400", icon: XCircle },
 };
 
-const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string }> = {
-    low: { label: "Low", color: "bg-slate-100 text-slate-600 dark:bg-slate-900/30 dark:text-slate-400" },
-    medium: { label: "Medium", color: "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" },
-    high: { label: "High", color: "bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400" },
-    urgent: { label: "Urgent", color: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" },
+const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string; dot: string }> = {
+    low: { label: "Low", color: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400", dot: "bg-slate-400" },
+    medium: { label: "Medium", color: "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400", dot: "bg-blue-500" },
+    high: { label: "High", color: "bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400", dot: "bg-orange-500" },
+    urgent: { label: "Urgent", color: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400", dot: "bg-red-500" },
 };
+
+const BOARD_COLUMNS: TaskStatus[] = ["open", "in_progress", "submitted", "verified", "rejected"];
+
+// ── Default form state ────────────────────────────────────────
+
+const defaultTaskForm = {
+    title: "",
+    description: "",
+    priority: "medium" as TaskPriority,
+    groupId: "",
+    projectId: "",
+    dueDate: "",
+    assignedTo: [] as string[],
+    completionRequired: false,
+    tags: "",
+    taskCode: "",
+};
+
+const generateTaskCode = () =>
+    `TSK-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+
+const defaultGroupForm = {
+    name: "",
+    description: "",
+    projectId: "",
+    memberEmployeeIds: [] as string[],
+};
+
+// ── Main Component ────────────────────────────────────────────
 
 export default function AdminTasksView() {
     const {
-        groups, tasks, addGroup, addTask, updateTask, deleteTask, deleteGroup, changeStatus, getStats,
+        tasks, groups, completionReports,
+        addTask, updateTask, deleteTask,
+        addGroup, updateGroup, deleteGroup,
+        verifyCompletion, rejectCompletion,
+        getStats,
+        taskTags, addTag, updateTag, deleteTag,
     } = useTasksStore();
     const employees = useEmployeesStore((s) => s.employees);
-    const projects = useProjectsStore((s) => s.projects);
     const currentUser = useAuthStore((s) => s.currentUser);
+    const projects = useProjectsStore((s) => s.projects);
     const roleHref = useRoleHref();
 
-    const stats = getStats();
-
-    // ── Filters ──────────────────────────────────────────────
+    // ── Filters ───────────────────────────────────────────────
     const [search, setSearch] = useState("");
-    const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
+    const [statusFilter, setStatusFilter] = useState<string>("all");
+    const [priorityFilter, setPriorityFilter] = useState<string>("all");
     const [groupFilter, setGroupFilter] = useState<string>("all");
-    const [priorityFilter, setPriorityFilter] = useState<TaskPriority | "all">("all");
 
+    // ── Task CRUD dialogs ─────────────────────────────────────
+    const [createOpen, setCreateOpen] = useState(false);
+    const [editTask, setEditTask] = useState<Task | null>(null);
+    const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
+    const [taskForm, setTaskForm] = useState(defaultTaskForm);
+
+    // ── Group CRUD dialogs ────────────────────────────────────
+    const [groupCreateOpen, setGroupCreateOpen] = useState(false);
+    const [editGroup, setEditGroup] = useState<TaskGroup | null>(null);
+    const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
+    const [groupForm, setGroupForm] = useState(defaultGroupForm);
+
+    // ── Tag CRUD dialogs ──────────────────────────────────────
+    const [tagCreateOpen, setTagCreateOpen] = useState(false);
+    const [editTag, setEditTag] = useState<TaskTag | null>(null);
+    const [deleteTagId, setDeleteTagId] = useState<string | null>(null);
+    const [tagForm, setTagForm] = useState({ name: "", color: "#6366f1" });
+
+    // ── Tag suggestions ───────────────────────────────────────
+    const [showTagSugs, setShowTagSugs] = useState(false);
+
+    // ── Verification dialog ───────────────────────────────────
+    const [rejectOpen, setRejectOpen] = useState<string | null>(null);
+    const [rejectReason, setRejectReason] = useState("");
+
+    // ── Sorting ───────────────────────────────────────────────
+    const [sortField, setSortField] = useState<"title" | "priority" | "dueDate" | "status">("dueDate");
+    const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+    // ── Helpers ───────────────────────────────────────────────
+    const getEmpName = useCallback(
+        (id: string) => employees.find((e) => e.id === id)?.name ?? id,
+        [employees],
+    );
+    const getGroupName = useCallback(
+        (id: string) => groups.find((g) => g.id === id)?.name ?? "Ungrouped",
+        [groups],
+    );
+    const myEmployeeId = useMemo(
+        () =>
+            employees.find(
+                (e) =>
+                    e.profileId === currentUser.id ||
+                    e.email === currentUser.email ||
+                    e.name === currentUser.name,
+            )?.id ?? currentUser.id,
+        [employees, currentUser],
+    );
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const stats = useMemo(() => getStats(), [getStats, tasks.length]);
+
+    // ── Existing tags for auto-suggest ────────────────────────
+    const allTags = useMemo(() => {
+        // Merge registry tag names + tag names used on tasks (deduplicated)
+        const tagSet = new Set<string>(taskTags.map((t) => t.name));
+        tasks.forEach((t) => t.tags?.forEach((tag) => tagSet.add(tag)));
+        return Array.from(tagSet).sort();
+    }, [tasks, taskTags]);
+
+    const currentTagSegment = useMemo(() => {
+        const parts = taskForm.tags.split(",");
+        return parts[parts.length - 1].trim();
+    }, [taskForm.tags]);
+
+    const currentTagList = useMemo(
+        () => taskForm.tags.split(",").map((t) => t.trim()).filter(Boolean),
+        [taskForm.tags],
+    );
+
+    const tagSuggestions = useMemo(() => {
+        if (!currentTagSegment) return allTags.filter((t) => !currentTagList.includes(t)).slice(0, 8);
+        return allTags
+            .filter(
+                (t) =>
+                    t.toLowerCase().includes(currentTagSegment.toLowerCase()) &&
+                    !currentTagList.includes(t),
+            )
+            .slice(0, 6);
+    }, [allTags, currentTagSegment, currentTagList]);
+
+    const applyTagSuggestion = useCallback(
+        (tag: string) => {
+            const parts = taskForm.tags.split(",");
+            parts[parts.length - 1] = tag;
+            const newTags = parts.map((t) => t.trim()).filter(Boolean).join(", ");
+            setTaskForm((p) => ({ ...p, tags: newTags + ", " }));
+            setShowTagSugs(false);
+        },
+        [taskForm.tags],
+    );
+
+    // ── Filtered tasks ────────────────────────────────────────
     const filteredTasks = useMemo(() => {
-        return tasks.filter((t) => {
-            if (search && !t.title.toLowerCase().includes(search.toLowerCase()) && !t.description?.toLowerCase().includes(search.toLowerCase())) return false;
-            if (statusFilter !== "all" && t.status !== statusFilter) return false;
-            if (groupFilter !== "all" && t.groupId !== groupFilter) return false;
-            if (priorityFilter !== "all" && t.priority !== priorityFilter) return false;
-            return true;
-        });
-    }, [tasks, search, statusFilter, groupFilter, priorityFilter]);
+        let list = [...tasks];
+        if (search) {
+            const q = search.toLowerCase();
+            list = list.filter(
+                (t) =>
+                    t.title.toLowerCase().includes(q) ||
+                    t.description.toLowerCase().includes(q) ||
+                    t.id.toLowerCase().includes(q),
+            );
+        }
+        if (statusFilter !== "all") list = list.filter((t) => t.status === statusFilter);
+        if (priorityFilter !== "all") list = list.filter((t) => t.priority === priorityFilter);
+        if (groupFilter !== "all") list = list.filter((t) => t.groupId === groupFilter);
 
-    // ── Create Group Dialog ──────────────────────────────────
-    const [groupOpen, setGroupOpen] = useState(false);
-    const [gName, setGName] = useState("");
-    const [gDesc, setGDesc] = useState("");
-    const [gProjectId, setGProjectId] = useState("");
-    const [gMembers, setGMembers] = useState<string[]>([]);
-    const [gPermission, setGPermission] = useState<AnnouncementPermission>("admin_only");
+        const priorityOrder: Record<TaskPriority, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+        const statusOrder: Record<TaskStatus, number> = { open: 0, in_progress: 1, submitted: 2, rejected: 3, verified: 4, cancelled: 5 };
 
-    const handleCreateGroup = () => {
-        if (!gName) { toast.error("Group name is required"); return; }
-        addGroup({
-            name: gName,
-            description: gDesc || undefined,
-            projectId: gProjectId && gProjectId !== "none" ? gProjectId : undefined,
-            createdBy: currentUser.id,
-            memberEmployeeIds: gMembers,
-            announcementPermission: gPermission,
+        list.sort((a, b) => {
+            let cmp = 0;
+            if (sortField === "title") cmp = a.title.localeCompare(b.title);
+            else if (sortField === "priority") cmp = priorityOrder[a.priority] - priorityOrder[b.priority];
+            else if (sortField === "status") cmp = statusOrder[a.status] - statusOrder[b.status];
+            else if (sortField === "dueDate") {
+                const da = a.dueDate ?? "9999-12-31";
+                const db = b.dueDate ?? "9999-12-31";
+                cmp = da.localeCompare(db);
+            }
+            return sortDir === "asc" ? cmp : -cmp;
         });
-        toast.success(`Group "${gName}" created`);
-        setGName(""); setGDesc(""); setGProjectId(""); setGMembers([]); setGPermission("admin_only");
-        setGroupOpen(false);
+        return list;
+    }, [tasks, search, statusFilter, priorityFilter, groupFilter, sortField, sortDir]);
+
+    // ── Task form handlers ────────────────────────────────────
+    const resetTaskForm = () => setTaskForm(defaultTaskForm);
+
+    const openCreateDialog = () => {
+        setTaskForm({ ...defaultTaskForm, taskCode: generateTaskCode() });
+        setCreateOpen(true);
     };
 
-    // ── Create Task Dialog ───────────────────────────────────
-    const [taskOpen, setTaskOpen] = useState(false);
-    const [tTitle, setTTitle] = useState("");
-    const [tDesc, setTDesc] = useState("");
-    const [tGroupId, setTGroupId] = useState("");
-    const [tPriority, setTPriority] = useState<TaskPriority>("medium");
-    const [tDue, setTDue] = useState("");
-    const [tAssigned, setTAssigned] = useState<string[]>([]);
-    const [tCompletion, setTCompletion] = useState(false);
-    const [tTags, setTTags] = useState("");
-
-    // ── Edit Task Dialog ─────────────────────────────────────
-    const [editTaskOpen, setEditTaskOpen] = useState(false);
-    const [editTaskId, setEditTaskId] = useState("");
-    const [etTitle, setEtTitle] = useState("");
-    const [etDesc, setEtDesc] = useState("");
-    const [etGroupId, setEtGroupId] = useState("");
-    const [etPriority, setEtPriority] = useState<TaskPriority>("medium");
-    const [etDue, setEtDue] = useState("");
-    const [etAssigned, setEtAssigned] = useState<string[]>([]);
-    const [etCompletion, setEtCompletion] = useState(false);
-    const [etTags, setEtTags] = useState("");
-    const [etStatus, setEtStatus] = useState<TaskStatus>("open");
-
-    const handleCreateTask = () => {
-        if (!tTitle || !tGroupId) { toast.error("Title and group are required"); return; }
-        addTask({
-            groupId: tGroupId,
-            title: tTitle,
-            description: tDesc || "",
-            priority: tPriority,
-            status: "open",
-            dueDate: tDue || undefined,
-            assignedTo: tAssigned,
-            createdBy: currentUser.id,
-            completionRequired: tCompletion,
-            tags: tTags ? tTags.split(",").map((t) => t.trim()).filter(Boolean) : undefined,
+    const openEditDialog = (task: Task) => {
+        setTaskForm({
+            ...defaultTaskForm,
+            title: task.title ?? "",
+            description: task.description ?? "",
+            priority: task.priority ?? "medium",
+            groupId: task.groupId ?? "",
+            projectId: task.projectId ?? "",
+            dueDate: task.dueDate ?? "",
+            assignedTo: task.assignedTo ? [...task.assignedTo] : [],
+            completionRequired: task.completionRequired ?? false,
+            tags: task.tags?.join(", ") ?? "",
+            taskCode: task.id ?? "",
         });
-        toast.success(`Task "${tTitle}" created`);
-        setTTitle(""); setTDesc(""); setTGroupId(""); setTPriority("medium");
-        setTDue(""); setTAssigned([]); setTCompletion(false); setTTags("");
-        setTaskOpen(false);
+        setEditTask(task);
     };
 
-    const handleOpenEditTask = (task: Task) => {
-        setEditTaskId(task.id);
-        setEtTitle(task.title);
-        setEtDesc(task.description || "");
-        setEtGroupId(task.groupId);
-        setEtPriority(task.priority);
-        setEtDue(task.dueDate || "");
-        setEtAssigned([...task.assignedTo]);
-        setEtCompletion(task.completionRequired ?? false);
-        setEtTags(task.tags?.join(", ") || "");
-        setEtStatus(task.status);
-        setEditTaskOpen(true);
+    const handleSaveTask = () => {
+        if (!taskForm.title.trim()) { toast.error("Title is required"); return; }
+        if (!taskForm.groupId) { toast.error("Please select a group"); return; }
+        const codeInput = taskForm.taskCode.trim().toUpperCase();
+        if (!editTask && !codeInput) { toast.error("Task code is required"); return; }
+        // Duplicate code check for new tasks
+        if (!editTask && tasks.some((t) => t.id === codeInput)) {
+            toast.error(`Task code "${codeInput}" is already in use`);
+            return;
+        }
+
+        const tags = taskForm.tags
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean);
+
+        if (editTask) {
+            updateTask(editTask.id, {
+                title: taskForm.title.trim(),
+                description: taskForm.description.trim(),
+                priority: taskForm.priority,
+                groupId: taskForm.groupId,
+                projectId: taskForm.projectId || undefined,
+                dueDate: taskForm.dueDate || undefined,
+                assignedTo: taskForm.assignedTo,
+                completionRequired: taskForm.completionRequired,
+                tags: tags.length > 0 ? tags : undefined,
+            });
+            toast.success("Task updated");
+            setEditTask(null);
+        } else {
+            addTask({
+                id: codeInput,
+                title: taskForm.title.trim(),
+                description: taskForm.description.trim(),
+                priority: taskForm.priority,
+                groupId: taskForm.groupId,
+                projectId: taskForm.projectId || undefined,
+                status: "open",
+                dueDate: taskForm.dueDate || undefined,
+                assignedTo: taskForm.assignedTo,
+                createdBy: myEmployeeId,
+                completionRequired: taskForm.completionRequired,
+                tags: tags.length > 0 ? tags : undefined,
+            });
+            toast.success("Task created");
+            setCreateOpen(false);
+        }
+        resetTaskForm();
     };
 
-    const handleUpdateTask = () => {
-        if (!etTitle || !etGroupId) { toast.error("Title and group are required"); return; }
-        updateTask(editTaskId, {
-            groupId: etGroupId,
-            title: etTitle,
-            description: etDesc || "",
-            priority: etPriority,
-            status: etStatus,
-            dueDate: etDue || undefined,
-            assignedTo: etAssigned,
-            completionRequired: etCompletion,
-            tags: etTags ? etTags.split(",").map((t) => t.trim()).filter(Boolean) : undefined,
+    const handleDeleteTask = () => {
+        if (deleteTaskId) {
+            deleteTask(deleteTaskId);
+            toast.success("Task deleted");
+            setDeleteTaskId(null);
+        }
+    };
+
+    // ── Group form handlers ───────────────────────────────────
+    const resetGroupForm = () => setGroupForm(defaultGroupForm);
+
+    const openGroupCreate = () => {
+        resetGroupForm();
+        setGroupCreateOpen(true);
+    };
+
+    const openGroupEdit = (group: TaskGroup) => {
+        setGroupForm({
+            name: group.name,
+            description: group.description ?? "",
+            projectId: group.projectId ?? "",
+            memberEmployeeIds: [...group.memberEmployeeIds],
         });
-        toast.success(`Task "${etTitle}" updated`);
-        setEditTaskOpen(false);
+        setEditGroup(group);
     };
 
-    const getEmpName = (id: string) => employees.find((e) => e.id === id)?.name || id;
-    const getGroupName = (id: string) => groups.find((g) => g.id === id)?.name || id;
+    const handleSaveGroup = () => {
+        if (!groupForm.name.trim()) { toast.error("Group name is required"); return; }
+
+        if (editGroup) {
+            updateGroup(editGroup.id, {
+                name: groupForm.name.trim(),
+                description: groupForm.description.trim() || undefined,
+                projectId: groupForm.projectId || undefined,
+                memberEmployeeIds: groupForm.memberEmployeeIds,
+            });
+            toast.success("Group updated");
+            setEditGroup(null);
+        } else {
+            addGroup({
+                name: groupForm.name.trim(),
+                description: groupForm.description.trim() || undefined,
+                projectId: groupForm.projectId || undefined,
+                createdBy: myEmployeeId,
+                memberEmployeeIds: groupForm.memberEmployeeIds,
+                announcementPermission: "admin_only",
+            });
+            toast.success("Group created");
+            setGroupCreateOpen(false);
+        }
+        resetGroupForm();
+    };
+
+    const handleDeleteGroup = () => {
+        if (deleteGroupId) {
+            deleteGroup(deleteGroupId);
+            toast.success("Group and its tasks deleted");
+            setDeleteGroupId(null);
+        }
+    };
+
+    // ── Tag form handlers ──────────────────────────────────────────
+    const openTagCreate = () => {
+        setTagForm({ name: "", color: "#6366f1" });
+        setTagCreateOpen(true);
+    };
+
+    const openTagEdit = (tag: TaskTag) => {
+        setTagForm({ name: tag.name, color: tag.color });
+        setEditTag(tag);
+    };
+
+    const handleSaveTag = () => {
+        if (!tagForm.name.trim()) { toast.error("Tag name is required"); return; }
+        const nameNorm = tagForm.name.trim().toLowerCase();
+        if (editTag) {
+            const conflict = taskTags.find((t) => t.id !== editTag.id && t.name.toLowerCase() === nameNorm);
+            if (conflict) { toast.error(`Tag "${tagForm.name.trim()}" already exists`); return; }
+            updateTag(editTag.id, { name: tagForm.name.trim(), color: tagForm.color });
+            toast.success("Tag updated");
+            setEditTag(null);
+        } else {
+            const conflict = taskTags.find((t) => t.name.toLowerCase() === nameNorm);
+            if (conflict) { toast.error(`Tag "${tagForm.name.trim()}" already exists`); return; }
+            addTag({ name: tagForm.name.trim(), color: tagForm.color, createdBy: myEmployeeId });
+            toast.success("Tag created");
+            setTagCreateOpen(false);
+        }
+        setTagForm({ name: "", color: "#6366f1" });
+    };
+
+    const handleDeleteTag = () => {
+        if (deleteTagId) {
+            deleteTag(deleteTagId);
+            toast.success("Tag deleted");
+            setDeleteTagId(null);
+        }
+    };
+
+    // ── Verification handlers ─────────────────────────────────
+    const handleVerify = (taskId: string) => {
+        const report = completionReports.find((r) => r.taskId === taskId);
+        if (report) {
+            verifyCompletion(report.id, myEmployeeId);
+            toast.success("Task verified");
+        }
+    };
+
+    const handleReject = () => {
+        if (!rejectOpen || !rejectReason.trim()) { toast.error("Reason is required"); return; }
+        const report = completionReports.find((r) => r.taskId === rejectOpen);
+        if (report) {
+            rejectCompletion(report.id, rejectReason.trim());
+            toast.success("Task rejected");
+        }
+        setRejectOpen(null);
+        setRejectReason("");
+    };
+
+    // ── Toggle employee in assignedTo ─────────────────────────
+    const toggleAssignee = (empId: string) => {
+        setTaskForm((prev) => ({
+            ...prev,
+            assignedTo: prev.assignedTo.includes(empId)
+                ? prev.assignedTo.filter((id) => id !== empId)
+                : [...prev.assignedTo, empId],
+        }));
+    };
+
+    const toggleGroupMember = (empId: string) => {
+        setGroupForm((prev) => ({
+            ...prev,
+            memberEmployeeIds: prev.memberEmployeeIds.includes(empId)
+                ? prev.memberEmployeeIds.filter((id) => id !== empId)
+                : [...prev.memberEmployeeIds, empId],
+        }));
+    };
+
+    // ── Sort toggle ───────────────────────────────────────────
+    const toggleSort = (field: typeof sortField) => {
+        if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+        else { setSortField(field); setSortDir("asc"); }
+    };
+
+    const isOverdue = (t: Task) =>
+        t.dueDate && new Date(t.dueDate) < new Date() && !["verified", "cancelled"].includes(t.status);
+
+    const activeEmployees = useMemo(
+        () => employees.filter((e) => e.status === "active"),
+        [employees],
+    );
+
+    const hasActiveFilters = statusFilter !== "all" || priorityFilter !== "all" || groupFilter !== "all" || search !== "";
+
+    const clearFilters = () => {
+        setSearch("");
+        setStatusFilter("all");
+        setPriorityFilter("all");
+        setGroupFilter("all");
+    };
+
+    // ────────────────────────────────────────────────────────────
+    // RENDER
+    // ────────────────────────────────────────────────────────────
+    const taskFormDialogOpen = createOpen || !!editTask;
+    const taskFormOnClose = () => { setCreateOpen(false); setEditTask(null); resetTaskForm(); };
+    const groupFormDialogOpen = groupCreateOpen || !!editGroup;
+    const groupFormOnClose = () => { setGroupCreateOpen(false); setEditGroup(null); resetGroupForm(); };
+    const tagFormDialogOpen = tagCreateOpen || !!editTag;
+    const tagFormOnClose = () => { setTagCreateOpen(false); setEditTag(null); setTagForm({ name: "", color: "#6366f1" }); };
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
+        <div className="space-y-6 pb-8">
+            {/* ── Header ───────────────────────────────────── */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">Task Management</h1>
-                    <p className="text-sm text-muted-foreground mt-0.5">{tasks.length} tasks across {groups.length} groups</p>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                        Manage and track all tasks across your organisation
+                    </p>
                 </div>
-                <div className="flex gap-2">
-                    <Dialog open={groupOpen} onOpenChange={setGroupOpen}>
-                        <DialogTrigger asChild>
-                            <Button variant="outline" className="gap-1.5"><Users className="h-4 w-4" /> New Group</Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-lg w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
-                            <DialogHeader><DialogTitle>Create Task Group</DialogTitle></DialogHeader>
-                            <div className="space-y-4 pt-2">
-                                <div>
-                                    <label className="text-sm font-medium">Group Name *</label>
-                                    <Input value={gName} onChange={(e) => setGName(e.target.value)} placeholder="e.g. Field Operations" className="mt-1" />
-                                </div>
-                                <div>
-                                    <label className="text-sm font-medium">Description</label>
-                                    <Textarea value={gDesc} onChange={(e) => setGDesc(e.target.value)} placeholder="Brief description..." className="mt-1" rows={2} />
-                                </div>
-                                <div>
-                                    <label className="text-sm font-medium">Linked Project</label>
-                                    <Select value={gProjectId} onValueChange={setGProjectId}>
-                                        <SelectTrigger className="mt-1"><SelectValue placeholder="None" /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="none">None</SelectItem>
-                                            {projects.filter((p) => p.id).map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div>
-                                    <label className="text-sm font-medium">Announcement Permission</label>
-                                    <Select value={gPermission} onValueChange={(v) => setGPermission(v as AnnouncementPermission)}>
-                                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="admin_only">Admin Only</SelectItem>
-                                            <SelectItem value="group_leads">Group Leads</SelectItem>
-                                            <SelectItem value="all_members">All Members</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div>
-                                    <label className="text-sm font-medium">Members</label>
-                                    <ScrollArea className="h-40 rounded border mt-1 p-2">
-                                        {employees.filter((e) => e.status === "active").map((emp) => (
-                                            <div key={emp.id} className="flex items-center gap-2 py-1">
-                                                <Checkbox
-                                                    checked={gMembers.includes(emp.id)}
-                                                    onCheckedChange={(checked) =>
-                                                        setGMembers((prev) => checked ? [...prev, emp.id] : prev.filter((id) => id !== emp.id))
-                                                    }
-                                                />
-                                                <span className="text-sm">{emp.name}</span>
-                                                <span className="text-xs text-muted-foreground">({emp.department})</span>
-                                            </div>
-                                        ))}
-                                    </ScrollArea>
-                                </div>
-                                <Button onClick={handleCreateGroup} className="w-full">Create Group</Button>
-                            </div>
-                        </DialogContent>
-                    </Dialog>
-                    <Dialog open={taskOpen} onOpenChange={setTaskOpen}>
-                        <DialogTrigger asChild>
-                            <Button className="gap-1.5"><Plus className="h-4 w-4" /> New Task</Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-lg w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
-                            <DialogHeader><DialogTitle>Create Task</DialogTitle></DialogHeader>
-                            <div className="space-y-4 pt-2">
-                                <div>
-                                    <label className="text-sm font-medium">Title *</label>
-                                    <Input value={tTitle} onChange={(e) => setTTitle(e.target.value)} placeholder="e.g. Site inspection" className="mt-1" />
-                                </div>
-                                <div>
-                                    <label className="text-sm font-medium">Description</label>
-                                    <Textarea value={tDesc} onChange={(e) => setTDesc(e.target.value)} placeholder="Task details..." className="mt-1" rows={3} />
-                                </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <div>
-                                        <label className="text-sm font-medium">Group *</label>
-                                        <Select value={tGroupId} onValueChange={setTGroupId}>
-                                            <SelectTrigger className="mt-1"><SelectValue placeholder="Select group" /></SelectTrigger>
-                                            <SelectContent>
-                                                {groups.filter((g) => g.id).map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                    <div>
-                                        <label className="text-sm font-medium">Priority</label>
-                                        <Select value={tPriority} onValueChange={(v) => setTPriority(v as TaskPriority)}>
-                                            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="low">Low</SelectItem>
-                                                <SelectItem value="medium">Medium</SelectItem>
-                                                <SelectItem value="high">High</SelectItem>
-                                                <SelectItem value="urgent">Urgent</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="text-sm font-medium">Due Date</label>
-                                    <Input type="date" value={tDue} onChange={(e) => setTDue(e.target.value)} className="mt-1" />
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Switch checked={tCompletion} onCheckedChange={setTCompletion} />
-                                    <label className="text-sm font-medium">Require photo/GPS proof</label>
-                                </div>
-                                <div>
-                                    <label className="text-sm font-medium">Tags (comma-separated)</label>
-                                    <Input value={tTags} onChange={(e) => setTTags(e.target.value)} placeholder="inspection, safety" className="mt-1" />
-                                </div>
-                                <div>
-                                    <label className="text-sm font-medium">Assign To</label>
-                                    <ScrollArea className="h-40 rounded border mt-1 p-2">
-                                        {employees.filter((e) => e.status === "active").map((emp) => (
-                                            <div key={emp.id} className="flex items-center gap-2 py-1">
-                                                <Checkbox
-                                                    checked={tAssigned.includes(emp.id)}
-                                                    onCheckedChange={(checked) =>
-                                                        setTAssigned((prev) => checked ? [...prev, emp.id] : prev.filter((id) => id !== emp.id))
-                                                    }
-                                                />
-                                                <span className="text-sm">{emp.name}</span>
-                                            </div>
-                                        ))}
-                                    </ScrollArea>
-                                </div>
-                                <Button onClick={handleCreateTask} className="w-full">Create Task</Button>
-                            </div>
-                        </DialogContent>
-                    </Dialog>
-                </div>
+                <Button onClick={openCreateDialog} className="gap-2 shrink-0">
+                    <Plus className="h-4 w-4" /> New Task
+                </Button>
             </div>
 
-            {/* ── Edit Task Dialog ──────────────────────────── */}
-            <Dialog open={editTaskOpen} onOpenChange={setEditTaskOpen}>
-                <DialogContent className="max-w-lg w-[calc(100vw-2rem)] max-h-[90vh] overflow-y-auto">
-                    <DialogHeader><DialogTitle>Edit Task</DialogTitle></DialogHeader>
-                    <div className="space-y-4 pt-2">
-                        <div>
-                            <label className="text-sm font-medium">Title *</label>
-                            <Input value={etTitle} onChange={(e) => setEtTitle(e.target.value)} placeholder="e.g. Site inspection" className="mt-1" />
-                        </div>
-                        <div>
-                            <label className="text-sm font-medium">Description</label>
-                            <Textarea value={etDesc} onChange={(e) => setEtDesc(e.target.value)} placeholder="Task details..." className="mt-1" rows={3} />
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-sm font-medium">Group *</label>
-                                <Select value={etGroupId} onValueChange={setEtGroupId}>
-                                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select group" /></SelectTrigger>
-                                    <SelectContent>
-                                        {groups.filter((g) => g.id).map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div>
-                                <label className="text-sm font-medium">Priority</label>
-                                <Select value={etPriority} onValueChange={(v) => setEtPriority(v as TaskPriority)}>
-                                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="low">Low</SelectItem>
-                                        <SelectItem value="medium">Medium</SelectItem>
-                                        <SelectItem value="high">High</SelectItem>
-                                        <SelectItem value="urgent">Urgent</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-sm font-medium">Status</label>
-                                <Select value={etStatus} onValueChange={(v) => setEtStatus(v as TaskStatus)}>
-                                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="open">Open</SelectItem>
-                                        <SelectItem value="in_progress">In Progress</SelectItem>
-                                        <SelectItem value="submitted">Submitted</SelectItem>
-                                        <SelectItem value="verified">Verified</SelectItem>
-                                        <SelectItem value="rejected">Rejected</SelectItem>
-                                        <SelectItem value="cancelled">Cancelled</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div>
-                                <label className="text-sm font-medium">Due Date</label>
-                                <Input type="date" value={etDue} onChange={(e) => setEtDue(e.target.value)} className="mt-1" />
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Switch checked={etCompletion} onCheckedChange={setEtCompletion} />
-                            <label className="text-sm font-medium">Require photo/GPS proof</label>
-                        </div>
-                        <div>
-                            <label className="text-sm font-medium">Tags (comma-separated)</label>
-                            <Input value={etTags} onChange={(e) => setEtTags(e.target.value)} placeholder="inspection, safety" className="mt-1" />
-                        </div>
-                        <div>
-                            <label className="text-sm font-medium">Assign To</label>
-                            <ScrollArea className="h-40 rounded border mt-1 p-2">
-                                {employees.filter((e) => e.status === "active").map((emp) => (
-                                    <div key={emp.id} className="flex items-center gap-2 py-1">
-                                        <Checkbox
-                                            checked={etAssigned.includes(emp.id)}
-                                            onCheckedChange={(checked) =>
-                                                setEtAssigned((prev) => checked ? [...prev, emp.id] : prev.filter((id) => id !== emp.id))
-                                            }
-                                        />
-                                        <span className="text-sm">{emp.name}</span>
-                                    </div>
-                                ))}
-                            </ScrollArea>
-                        </div>
-                        <Button onClick={handleUpdateTask} className="w-full">Save Changes</Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                {[
-                    { label: "Total", value: stats.total, color: "text-foreground" },
-                    { label: "Open", value: stats.open, color: "text-blue-600" },
-                    { label: "In Progress", value: stats.inProgress, color: "text-yellow-600" },
-                    { label: "Submitted", value: stats.submitted, color: "text-purple-600" },
-                    { label: "Verified", value: stats.verified, color: "text-green-600" },
-                    { label: "Overdue", value: stats.overdue, color: "text-red-600" },
-                ].map((kpi) => (
+            {/* ── Stats Cards ──────────────────────────────── */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 sm:gap-3">
+                {([
+                    { label: "Total", value: stats.total, icon: BarChart3, color: "text-foreground" },
+                    { label: "Open", value: stats.open, icon: ListTodo, color: "text-blue-600" },
+                    { label: "In Progress", value: stats.inProgress, icon: Clock, color: "text-yellow-600" },
+                    { label: "Submitted", value: stats.submitted, icon: Send, color: "text-purple-600" },
+                    { label: "Verified", value: stats.verified, icon: CheckCircle2, color: "text-green-600" },
+                    { label: "Rejected", value: stats.rejected, icon: XCircle, color: "text-red-600" },
+                    { label: "Overdue", value: stats.overdue, icon: AlertTriangle, color: "text-red-600" },
+                ] as const).map((kpi) => (
                     <Card key={kpi.label} className="border border-border/50">
-                        <CardContent className="p-4">
-                            <p className="text-xs text-muted-foreground">{kpi.label}</p>
-                            <p className={`text-2xl font-bold mt-1 ${kpi.color}`}>{kpi.value}</p>
+                        <CardContent className="p-3 flex items-center gap-2.5">
+                            <kpi.icon className={`h-4 w-4 shrink-0 ${kpi.color}`} />
+                            <div className="min-w-0">
+                                <p className="text-[10px] sm:text-xs text-muted-foreground truncate">{kpi.label}</p>
+                                <p className={`text-lg font-bold leading-none mt-0.5 ${kpi.color}`}>{kpi.value}</p>
+                            </div>
                         </CardContent>
                     </Card>
                 ))}
             </div>
 
-            <Tabs defaultValue="tasks">
-                <TabsList>
-                    <TabsTrigger value="tasks">All Tasks</TabsTrigger>
-                    <TabsTrigger value="board">Board View</TabsTrigger>
-                    <TabsTrigger value="groups">Groups ({groups.length})</TabsTrigger>
-                </TabsList>
+            {/* ── Main Tabs ────────────────────────────────── */}
+            <Tabs defaultValue="table">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <TabsList>
+                        <TabsTrigger value="table" className="gap-1.5 text-xs sm:text-sm">
+                            <Table2 className="h-3.5 w-3.5" /> Table
+                        </TabsTrigger>
+                        <TabsTrigger value="board" className="gap-1.5 text-xs sm:text-sm">
+                            <LayoutGrid className="h-3.5 w-3.5" /> Board
+                        </TabsTrigger>
+                        <TabsTrigger value="groups" className="gap-1.5 text-xs sm:text-sm">
+                            <Layers className="h-3.5 w-3.5" /> Groups
+                            <Badge variant="secondary" className="text-[10px] h-4 min-w-4 px-1">
+                                {groups.length}
+                            </Badge>
+                        </TabsTrigger>
+                        <TabsTrigger value="tags" className="gap-1.5 text-xs sm:text-sm">
+                            <Tag className="h-3.5 w-3.5" /> Tags
+                            <Badge variant="secondary" className="text-[10px] h-4 min-w-4 px-1">
+                                {taskTags.length}
+                            </Badge>
+                        </TabsTrigger>
+                    </TabsList>
+                </div>
 
-                {/* ── All Tasks Tab ──────────────────────────── */}
-                <TabsContent value="tasks" className="space-y-4 mt-4">
-                    {/* Filters */}
-                    <div className="flex flex-wrap gap-2">
-                        <div className="relative flex-1 min-w-[200px]">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input placeholder="Search tasks..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
-                        </div>
-                        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as TaskStatus | "all")}>
-                            <SelectTrigger className="w-[140px]"><Filter className="h-3.5 w-3.5 mr-1.5" /><SelectValue /></SelectTrigger>
+                {/* ── Filter Bar ───────────────────────────── */}
+                <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search tasks..."
+                            className="pl-9"
+                        />
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                        <Select value={statusFilter} onValueChange={setStatusFilter}>
+                            <SelectTrigger className="w-[130px] h-9 text-xs">
+                                <Filter className="h-3 w-3 mr-1" />
+                                <SelectValue placeholder="Status" />
+                            </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">All Status</SelectItem>
-                                {(Object.entries(STATUS_CONFIG) as [TaskStatus, typeof STATUS_CONFIG[TaskStatus]][]).map(([k, v]) => (
-                                    <SelectItem key={k} value={k}>{v.label}</SelectItem>
-                                ))}
+                                {(Object.entries(STATUS_CONFIG) as [TaskStatus, typeof STATUS_CONFIG["open"]][]).map(
+                                    ([key, cfg]) => (
+                                        <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+                                    ),
+                                )}
+                            </SelectContent>
+                        </Select>
+                        <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                            <SelectTrigger className="w-[130px] h-9 text-xs">
+                                <SelectValue placeholder="Priority" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Priority</SelectItem>
+                                {(Object.entries(PRIORITY_CONFIG) as [TaskPriority, typeof PRIORITY_CONFIG["low"]][]).map(
+                                    ([key, cfg]) => (
+                                        <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+                                    ),
+                                )}
                             </SelectContent>
                         </Select>
                         <Select value={groupFilter} onValueChange={setGroupFilter}>
-                            <SelectTrigger className="w-[150px]"><SelectValue placeholder="All Groups" /></SelectTrigger>
+                            <SelectTrigger className="w-[150px] h-9 text-xs">
+                                <SelectValue placeholder="Group" />
+                            </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">All Groups</SelectItem>
-                                {groups.filter((g) => g.id).map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                                {groups.map((g) => (
+                                    <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
-                        <Select value={priorityFilter} onValueChange={(v) => setPriorityFilter(v as TaskPriority | "all")}>
-                            <SelectTrigger className="w-[130px]"><SelectValue placeholder="All Priority" /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All Priority</SelectItem>
-                                <SelectItem value="low">Low</SelectItem>
-                                <SelectItem value="medium">Medium</SelectItem>
-                                <SelectItem value="high">High</SelectItem>
-                                <SelectItem value="urgent">Urgent</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        {hasActiveFilters && (
+                            <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 text-xs gap-1">
+                                <XCircle className="h-3 w-3" /> Clear
+                            </Button>
+                        )}
                     </div>
+                </div>
 
-                    {/* ── Mobile card list (< md) ────────────────────── */}
-                    <div className="md:hidden space-y-2">
-                        {filteredTasks.length === 0 ? (
-                            <Card className="border border-border/50">
-                                <CardContent className="p-8 text-center text-sm text-muted-foreground">
-                                    <ListTodo className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                                    No tasks found
-                                </CardContent>
-                            </Card>
-                        ) : filteredTasks.map((task) => {
-                            const sc = STATUS_CONFIG[task.status];
-                            const pc = PRIORITY_CONFIG[task.priority];
-                            const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && !["verified", "cancelled"].includes(task.status);
-                            return (
-                                <Card key={task.id} className="border border-border/50">
-                                    <CardContent className="p-3 space-y-2">
-                                        <div className="flex items-start justify-between gap-2">
-                                            <Link href={roleHref(`/tasks/${task.id}`)} className="min-w-0 flex-1 hover:underline">
-                                                <p className="text-sm font-medium leading-snug">{task.title}</p>
-                                                <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{task.id} · {getGroupName(task.groupId)}</p>
-                                            </Link>
-                                            <div className="flex gap-0.5 shrink-0">
-                                                <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                                                    <Link href={roleHref(`/tasks/${task.id}`)}><Eye className="h-3.5 w-3.5" /></Link>
-                                                </Button>
-                                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleOpenEditTask(task)}>
-                                                    <Pencil className="h-3.5 w-3.5" />
-                                                </Button>
-                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-500/10" onClick={() => { deleteTask(task.id); toast.success("Task deleted"); }}>
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                </Button>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            <Badge variant="secondary" className={`text-[10px] ${sc.color}`}>{sc.label}</Badge>
-                                            <Badge variant="secondary" className={`text-[10px] ${pc.color}`}>{pc.label}</Badge>
-                                            {isOverdue && <Badge variant="secondary" className="text-[10px] bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">Overdue</Badge>}
-                                            {task.completionRequired && <Badge variant="outline" className="text-[10px]">📸 Proof</Badge>}
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex -space-x-1.5">
-                                                {task.assignedTo.length === 0 && <span className="text-xs text-muted-foreground">Unassigned</span>}
-                                                {task.assignedTo.slice(0, 4).map((empId) => (
-                                                    <Avatar key={empId} className="h-5 w-5 border-2 border-card">
-                                                        <AvatarFallback className="text-[7px] bg-muted">{getInitials(getEmpName(empId))}</AvatarFallback>
-                                                    </Avatar>
-                                                ))}
-                                                {task.assignedTo.length > 4 && <span className="text-xs text-muted-foreground pl-1">+{task.assignedTo.length - 4}</span>}
-                                            </div>
-                                            {task.dueDate && (
-                                                <span className={`text-xs ${isOverdue ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
-                                                    {isOverdue && <AlertTriangle className="inline h-3 w-3 mr-0.5" />}
-                                                    {formatDate(task.dueDate)}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            );
-                        })}
-                    </div>
-
-                    {/* ── Desktop table (≥ md) ─────────────────────────── */}
-                    <Card className="hidden md:block border border-border/50">
-                        <CardContent className="p-0">
+                {/* ═══════════════════════════════════════════════
+                    TABLE VIEW
+                ═══════════════════════════════════════════════ */}
+                <TabsContent value="table" className="mt-4">
+                    {filteredTasks.length === 0 ? (
+                        <Card className="border border-border/50">
+                            <CardContent className="p-10 text-center text-muted-foreground">
+                                <ListTodo className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                                <p className="text-sm">
+                                    {hasActiveFilters ? "No tasks match your filters" : "No tasks yet. Create your first task!"}
+                                </p>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <Card className="border border-border/50 overflow-hidden">
                             <div className="overflow-x-auto">
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead className="text-xs">Task</TableHead>
-                                            <TableHead className="text-xs">Group</TableHead>
-                                            <TableHead className="text-xs">Priority</TableHead>
-                                            <TableHead className="text-xs">Status</TableHead>
-                                            <TableHead className="text-xs">Due</TableHead>
-                                            <TableHead className="text-xs">Assigned</TableHead>
-                                            <TableHead className="text-xs w-24">Actions</TableHead>
+                                            <TableHead
+                                                className="cursor-pointer select-none"
+                                                onClick={() => toggleSort("title")}
+                                            >
+                                                <span className="flex items-center gap-1">
+                                                    Task <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+                                                </span>
+                                            </TableHead>
+                                            <TableHead className="hidden sm:table-cell">Group</TableHead>
+                                            <TableHead
+                                                className="cursor-pointer select-none"
+                                                onClick={() => toggleSort("status")}
+                                            >
+                                                <span className="flex items-center gap-1">
+                                                    Status <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+                                                </span>
+                                            </TableHead>
+                                            <TableHead
+                                                className="cursor-pointer select-none hidden md:table-cell"
+                                                onClick={() => toggleSort("priority")}
+                                            >
+                                                <span className="flex items-center gap-1">
+                                                    Priority <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+                                                </span>
+                                            </TableHead>
+                                            <TableHead className="hidden lg:table-cell">Assignees</TableHead>
+                                            <TableHead
+                                                className="cursor-pointer select-none hidden md:table-cell"
+                                                onClick={() => toggleSort("dueDate")}
+                                            >
+                                                <span className="flex items-center gap-1">
+                                                    Due <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+                                                </span>
+                                            </TableHead>
+                                            <TableHead className="w-10" />
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {filteredTasks.length === 0 ? (
-                                            <TableRow>
-                                                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">
-                                                    <ListTodo className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                                                    No tasks found
-                                                </TableCell>
-                                            </TableRow>
-                                        ) : filteredTasks.map((task) => {
+                                        {filteredTasks.map((task) => {
                                             const sc = STATUS_CONFIG[task.status];
                                             const pc = PRIORITY_CONFIG[task.priority];
-                                            const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && !["verified", "cancelled"].includes(task.status);
+                                            const overdue = isOverdue(task);
+                                            const report = completionReports.find((r) => r.taskId === task.id);
+                                            const canReview = task.status === "submitted" && report && !report.verifiedBy && !report.rejectionReason;
+
                                             return (
-                                                <TableRow key={task.id}>
+                                                <TableRow key={task.id} className="group">
                                                     <TableCell>
-                                                        <Link href={roleHref(`/tasks/${task.id}`)} className="hover:underline">
-                                                            <p className="text-sm font-medium">{task.title}</p>
-                                                            <p className="text-xs text-muted-foreground font-mono">{task.id}</p>
+                                                        <Link
+                                                            href={roleHref(`/tasks/${task.id}`)}
+                                                            className="font-medium text-sm hover:underline"
+                                                        >
+                                                            {task.title}
                                                         </Link>
+                                                        <p className="text-xs text-muted-foreground font-mono">{task.id}</p>
                                                     </TableCell>
-                                                    <TableCell className="text-xs">{getGroupName(task.groupId)}</TableCell>
-                                                    <TableCell>
-                                                        <Badge variant="secondary" className={`text-[10px] ${pc.color}`}>{pc.label}</Badge>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Badge variant="secondary" className={`text-[10px] ${sc.color}`}>{sc.label}</Badge>
+                                                    <TableCell className="hidden sm:table-cell">
+                                                        <span className="text-xs text-muted-foreground">{getGroupName(task.groupId)}</span>
                                                     </TableCell>
                                                     <TableCell>
-                                                        {task.dueDate ? (
-                                                            <span className={`text-xs ${isOverdue ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
-                                                                {isOverdue && <AlertTriangle className="inline h-3 w-3 mr-0.5" />}
-                                                                {formatDate(task.dueDate)}
-                                                            </span>
-                                                        ) : <span className="text-xs text-muted-foreground">—</span>}
+                                                        <Badge variant="secondary" className={`text-[10px] ${sc.color}`}>
+                                                            {sc.label}
+                                                        </Badge>
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="hidden md:table-cell">
+                                                        <span className="flex items-center gap-1.5 text-xs">
+                                                            <span className={`h-2 w-2 rounded-full ${pc.dot}`} />
+                                                            {pc.label}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell className="hidden lg:table-cell">
                                                         <div className="flex -space-x-1.5">
-                                                            {task.assignedTo.slice(0, 3).map((empId) => (
+                                                            {task.assignedTo.slice(0, 4).map((empId) => (
                                                                 <Avatar key={empId} className="h-6 w-6 border-2 border-card">
-                                                                    <AvatarFallback className="text-[8px] bg-muted">{getInitials(getEmpName(empId))}</AvatarFallback>
+                                                                    <AvatarFallback className="text-[8px] bg-muted">
+                                                                        {getInitials(getEmpName(empId))}
+                                                                    </AvatarFallback>
                                                                 </Avatar>
                                                             ))}
-                                                            {task.assignedTo.length > 3 && (
-                                                                <span className="text-xs text-muted-foreground pl-1">+{task.assignedTo.length - 3}</span>
+                                                            {task.assignedTo.length > 4 && (
+                                                                <span className="flex items-center justify-center h-6 w-6 rounded-full bg-muted text-[8px] font-medium border-2 border-card">
+                                                                    +{task.assignedTo.length - 4}
+                                                                </span>
                                                             )}
                                                         </div>
                                                     </TableCell>
+                                                    <TableCell className="hidden md:table-cell">
+                                                        {task.dueDate ? (
+                                                            <span className={`text-xs ${overdue ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
+                                                                {overdue && <AlertTriangle className="inline h-3 w-3 mr-0.5" />}
+                                                                {formatDate(task.dueDate)}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-xs text-muted-foreground">—</span>
+                                                        )}
+                                                    </TableCell>
                                                     <TableCell>
-                                                        <div className="flex items-center gap-1">
-                                                            <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                                                                <Link href={roleHref(`/tasks/${task.id}`)}><Eye className="h-3.5 w-3.5" /></Link>
-                                                            </Button>
-                                                            <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit task" onClick={() => handleOpenEditTask(task)}>
-                                                                <Pencil className="h-3.5 w-3.5" />
-                                                            </Button>
-                                                            {task.status === "submitted" && (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-500/10"
-                                                                    title="Verify task"
-                                                                    onClick={() => { changeStatus(task.id, "verified"); toast.success("Task verified"); }}
-                                                                >
-                                                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                                                    <MoreHorizontal className="h-4 w-4" />
                                                                 </Button>
-                                                            )}
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-500/10"
-                                                                onClick={() => { deleteTask(task.id); toast.success("Task deleted"); }}
-                                                            >
-                                                                <Trash2 className="h-3.5 w-3.5" />
-                                                            </Button>
-                                                        </div>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent align="end">
+                                                                <DropdownMenuItem asChild>
+                                                                    <Link href={roleHref(`/tasks/${task.id}`)}>
+                                                                        <Eye className="h-4 w-4 mr-2" /> View Details
+                                                                    </Link>
+                                                                </DropdownMenuItem>
+                                                                <DropdownMenuItem onClick={() => openEditDialog(task)}>
+                                                                    <Pencil className="h-4 w-4 mr-2" /> Edit
+                                                                </DropdownMenuItem>
+                                                                {canReview && (
+                                                                    <>
+                                                                        <DropdownMenuSeparator />
+                                                                        <DropdownMenuItem onClick={() => handleVerify(task.id)}>
+                                                                            <CheckCircle2 className="h-4 w-4 mr-2 text-green-600" /> Verify
+                                                                        </DropdownMenuItem>
+                                                                        <DropdownMenuItem onClick={() => setRejectOpen(task.id)}>
+                                                                            <XCircle className="h-4 w-4 mr-2 text-red-600" /> Reject
+                                                                        </DropdownMenuItem>
+                                                                    </>
+                                                                )}
+                                                                {task.status !== "in_progress" && task.status !== "submitted" && task.status !== "verified" && (
+                                                                    <>
+                                                                        <DropdownMenuSeparator />
+                                                                        <DropdownMenuItem
+                                                                            className="text-destructive focus:text-destructive"
+                                                                            onClick={() => setDeleteTaskId(task.id)}
+                                                                        >
+                                                                            <Trash2 className="h-4 w-4 mr-2" /> Delete
+                                                                        </DropdownMenuItem>
+                                                                    </>
+                                                                )}
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
                                                     </TableCell>
                                                 </TableRow>
                                             );
@@ -624,111 +765,266 @@ export default function AdminTasksView() {
                                     </TableBody>
                                 </Table>
                             </div>
-                        </CardContent>
-                    </Card>
+                            <div className="px-4 py-2 border-t text-xs text-muted-foreground">
+                                Showing {filteredTasks.length} of {tasks.length} tasks
+                            </div>
+                        </Card>
+                    )}
                 </TabsContent>
 
-                {/* ── Board View Tab ─────────────────────────── */}
+                {/* ═══════════════════════════════════════════════
+                    BOARD VIEW (Kanban-style columns)
+                ═══════════════════════════════════════════════ */}
                 <TabsContent value="board" className="mt-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                        {(["open", "in_progress", "submitted", "verified", "rejected"] as TaskStatus[]).map((status) => {
-                            const sc = STATUS_CONFIG[status];
-                            const StatusIcon = sc.icon;
-                            const colTasks = tasks.filter((t) => t.status === status);
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                        {BOARD_COLUMNS.map((status) => {
+                            const cfg = STATUS_CONFIG[status];
+                            const columnTasks = filteredTasks.filter((t) => t.status === status);
                             return (
                                 <div key={status} className="space-y-2">
-                                    <div className="flex items-center gap-2 mb-3">
-                                        <StatusIcon className="h-4 w-4" />
-                                        <h3 className="text-sm font-semibold">{sc.label}</h3>
-                                        <Badge variant="secondary" className="text-[10px]">{colTasks.length}</Badge>
+                                    <div className="flex items-center gap-2 px-1">
+                                        <cfg.icon className="h-3.5 w-3.5 text-muted-foreground" />
+                                        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                            {cfg.label}
+                                        </span>
+                                        <Badge variant="secondary" className="text-[10px] h-4 min-w-4 px-1 ml-auto">
+                                            {columnTasks.length}
+                                        </Badge>
                                     </div>
-                                    {colTasks.length === 0 && (
-                                        <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">No tasks</div>
-                                    )}
-                                    {colTasks.map((task) => {
-                                        const pc = PRIORITY_CONFIG[task.priority];
-                                        return (
-                                            <Link key={task.id} href={roleHref(`/tasks/${task.id}`)}>
-                                                <Card className="border border-border/50 hover:border-border transition-colors cursor-pointer">
-                                                    <CardContent className="p-3 space-y-2">
-                                                        <p className="text-sm font-medium leading-snug">{task.title}</p>
-                                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                                            <Badge variant="secondary" className={`text-[10px] ${pc.color}`}>{pc.label}</Badge>
-                                                            {task.completionRequired && (
-                                                                <Badge variant="outline" className="text-[10px]">📸 Proof</Badge>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex -space-x-1.5">
-                                                                {task.assignedTo.slice(0, 2).map((empId) => (
-                                                                    <Avatar key={empId} className="h-5 w-5 border-2 border-card">
-                                                                        <AvatarFallback className="text-[7px] bg-muted">{getInitials(getEmpName(empId))}</AvatarFallback>
-                                                                    </Avatar>
-                                                                ))}
+                                    <div className="space-y-2 min-h-[100px]">
+                                        {columnTasks.map((task) => {
+                                            const pc = PRIORITY_CONFIG[task.priority];
+                                            const overdue = isOverdue(task);
+                                            return (
+                                                <Link key={task.id} href={roleHref(`/tasks/${task.id}`)}>
+                                                    <Card className="border border-border/50 hover:border-border transition-colors cursor-pointer">
+                                                        <CardContent className="p-3 space-y-2">
+                                                            <div className="flex items-start justify-between gap-1">
+                                                                <p className="text-sm font-medium leading-snug line-clamp-2">
+                                                                    {task.title}
+                                                                </p>
+                                                                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground mt-0.5" />
                                                             </div>
-                                                            {task.dueDate && (
-                                                                <span className="text-[10px] text-muted-foreground">{formatDate(task.dueDate)}</span>
-                                                            )}
-                                                        </div>
-                                                    </CardContent>
-                                                </Card>
-                                            </Link>
-                                        );
-                                    })}
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <Badge variant="secondary" className={`text-[10px] ${pc.color}`}>
+                                                                    {pc.label}
+                                                                </Badge>
+                                                                {overdue && (
+                                                                    <Badge variant="secondary" className="text-[10px] bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">
+                                                                        Overdue
+                                                                    </Badge>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex -space-x-1">
+                                                                    {task.assignedTo.slice(0, 3).map((empId) => (
+                                                                        <Avatar key={empId} className="h-5 w-5 border border-card">
+                                                                            <AvatarFallback className="text-[7px] bg-muted">
+                                                                                {getInitials(getEmpName(empId))}
+                                                                            </AvatarFallback>
+                                                                        </Avatar>
+                                                                    ))}
+                                                                </div>
+                                                                {task.dueDate && (
+                                                                    <span className={`text-[10px] ${overdue ? "text-red-600" : "text-muted-foreground"}`}>
+                                                                        {formatDate(task.dueDate)}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </CardContent>
+                                                    </Card>
+                                                </Link>
+                                            );
+                                        })}
+                                        {columnTasks.length === 0 && (
+                                            <div className="border border-dashed border-border/50 rounded-lg p-4 text-center">
+                                                <p className="text-[10px] text-muted-foreground">No tasks</p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             );
                         })}
                     </div>
                 </TabsContent>
 
-                {/* ── Groups Tab ──────────────────────────────── */}
-                <TabsContent value="groups" className="space-y-4 mt-4">
+                {/* ═══════════════════════════════════════════════
+                    GROUPS VIEW
+                ═══════════════════════════════════════════════ */}
+                <TabsContent value="groups" className="mt-4">
+                    <div className="flex items-center justify-between mb-4">
+                        <p className="text-sm text-muted-foreground">
+                            {groups.length} group{groups.length !== 1 ? "s" : ""} configured
+                        </p>
+                        <Button variant="outline" size="sm" onClick={openGroupCreate} className="gap-1.5">
+                            <FolderPlus className="h-4 w-4" /> New Group
+                        </Button>
+                    </div>
+
                     {groups.length === 0 ? (
                         <Card className="border border-border/50">
-                            <CardContent className="p-8 text-center text-muted-foreground">
-                                <FolderKanban className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                                <p className="text-sm">No task groups yet. Create one to get started.</p>
+                            <CardContent className="p-10 text-center text-muted-foreground">
+                                <FolderOpen className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                                <p className="text-sm">No groups yet. Create one to organize tasks.</p>
                             </CardContent>
                         </Card>
                     ) : (
-                        <div className="grid gap-4 md:grid-cols-2">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                             {groups.map((group) => {
-                                const gTasks = tasks.filter((t) => t.groupId === group.id);
-                                const project = projects.find((p) => p.id === group.projectId);
+                                const groupTasks = tasks.filter((t) => t.groupId === group.id);
+                                const openCount = groupTasks.filter((t) => t.status === "open").length;
+                                const inProgressCount = groupTasks.filter((t) => t.status === "in_progress").length;
+                                const doneCount = groupTasks.filter((t) => t.status === "verified").length;
+                                const linkedProject = projects.find((p) => p.id === group.projectId);
+
                                 return (
                                     <Card key={group.id} className="border border-border/50">
-                                        <CardHeader className="pb-3">
+                                        <CardHeader className="pb-2">
                                             <div className="flex items-start justify-between">
-                                                <div>
-                                                    <CardTitle className="text-base">{group.name}</CardTitle>
-                                                    {group.description && <p className="text-xs text-muted-foreground mt-1">{group.description}</p>}
+                                                <div className="min-w-0 flex-1">
+                                                    <CardTitle className="text-sm font-semibold truncate">
+                                                        {group.name}
+                                                    </CardTitle>
+                                                    {group.description && (
+                                                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                                                            {group.description}
+                                                        </p>
+                                                    )}
                                                 </div>
-                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-500/10" onClick={() => { deleteGroup(group.id); toast.success("Group deleted"); }}>
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                </Button>
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0">
+                                                            <MoreHorizontal className="h-4 w-4" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end">
+                                                        <DropdownMenuItem onClick={() => openGroupEdit(group)}>
+                                                            <Pencil className="h-4 w-4 mr-2" /> Edit
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuSeparator />
+                                                        <DropdownMenuItem
+                                                            className="text-destructive focus:text-destructive"
+                                                            onClick={() => setDeleteGroupId(group.id)}
+                                                        >
+                                                            <Trash2 className="h-4 w-4 mr-2" /> Delete
+                                                        </DropdownMenuItem>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
                                             </div>
                                         </CardHeader>
                                         <CardContent className="space-y-3">
-                                            {project && (
-                                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                                    <FolderKanban className="h-3.5 w-3.5" /> {project.name}
+                                            {linkedProject && (
+                                                <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                                    <FolderOpen className="h-3 w-3" /> {linkedProject.name}
                                                 </div>
                                             )}
-                                            <div className="flex items-center gap-4 text-xs">
-                                                <span><strong>{group.memberEmployeeIds.length}</strong> members</span>
-                                                <span><strong>{gTasks.length}</strong> tasks</span>
-                                                <span className="text-green-600"><strong>{gTasks.filter((t) => t.status === "verified").length}</strong> verified</span>
-                                            </div>
-                                            <div className="flex -space-x-2">
-                                                {group.memberEmployeeIds.slice(0, 5).map((empId) => (
-                                                    <Avatar key={empId} className="h-6 w-6 border-2 border-card">
-                                                        <AvatarFallback className="text-[8px] bg-muted">{getInitials(getEmpName(empId))}</AvatarFallback>
-                                                    </Avatar>
-                                                ))}
-                                                {group.memberEmployeeIds.length > 5 && (
-                                                    <span className="text-xs text-muted-foreground ml-2">+{group.memberEmployeeIds.length - 5}</span>
+                                            <div className="flex gap-2 flex-wrap">
+                                                <Badge variant="secondary" className="text-[10px]">
+                                                    {groupTasks.length} tasks
+                                                </Badge>
+                                                {openCount > 0 && (
+                                                    <Badge variant="secondary" className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                                        {openCount} open
+                                                    </Badge>
+                                                )}
+                                                {inProgressCount > 0 && (
+                                                    <Badge variant="secondary" className="text-[10px] bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+                                                        {inProgressCount} active
+                                                    </Badge>
+                                                )}
+                                                {doneCount > 0 && (
+                                                    <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                                        {doneCount} done
+                                                    </Badge>
                                                 )}
                                             </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <Users className="h-3 w-3 text-muted-foreground" />
+                                                <div className="flex -space-x-1">
+                                                    {group.memberEmployeeIds.slice(0, 5).map((empId) => (
+                                                        <Avatar key={empId} className="h-5 w-5 border border-card">
+                                                            <AvatarFallback className="text-[7px] bg-muted">
+                                                                {getInitials(getEmpName(empId))}
+                                                            </AvatarFallback>
+                                                        </Avatar>
+                                                    ))}
+                                                </div>
+                                                {group.memberEmployeeIds.length > 5 && (
+                                                    <span className="text-[10px] text-muted-foreground ml-1">
+                                                        +{group.memberEmployeeIds.length - 5}
+                                                    </span>
+                                                )}
+                                                {group.memberEmployeeIds.length === 0 && (
+                                                    <span className="text-[10px] text-muted-foreground">No members</span>
+                                                )}
+                                            </div>
+                                            <p className="text-[10px] text-muted-foreground">
+                                                Created {formatDate(group.createdAt)}
+                                            </p>
+                                        </CardContent>
+                                    </Card>
+                                );
+                            })}
+                        </div>
+                    )}
+                </TabsContent>
+
+                {/* ═══════════════════════════════════════════════
+                    TAGS VIEW
+                ═══════════════════════════════════════════════ */}
+                <TabsContent value="tags" className="mt-4">
+                    <div className="flex items-center justify-between mb-4">
+                        <p className="text-sm text-muted-foreground">
+                            {taskTags.length} tag{taskTags.length !== 1 ? "s" : ""} defined
+                        </p>
+                        <Button variant="outline" size="sm" onClick={openTagCreate} className="gap-1.5">
+                            <Plus className="h-4 w-4" /> New Tag
+                        </Button>
+                    </div>
+
+                    {taskTags.length === 0 ? (
+                        <Card className="border border-border/50">
+                            <CardContent className="p-10 text-center text-muted-foreground">
+                                <Tag className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                                <p className="text-sm">No tags yet. Create tags to categorise tasks.</p>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                            {taskTags.map((tag) => {
+                                const usageCount = tasks.filter((t) => t.tags?.includes(tag.name)).length;
+                                return (
+                                    <Card key={tag.id} className="border border-border/50">
+                                        <CardContent className="p-4 flex items-center gap-3">
+                                            <span
+                                                className="h-8 w-8 rounded-full shrink-0 border border-border/40"
+                                                style={{ backgroundColor: tag.color }}
+                                            />
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-sm font-medium truncate">{tag.name}</p>
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    {usageCount} task{usageCount !== 1 ? "s" : ""}
+                                                </p>
+                                            </div>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0">
+                                                        <MoreHorizontal className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem onClick={() => openTagEdit(tag)}>
+                                                        <Pencil className="h-4 w-4 mr-2" /> Edit
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuSeparator />
+                                                    <DropdownMenuItem
+                                                        className="text-destructive focus:text-destructive"
+                                                        onClick={() => setDeleteTagId(tag.id)}
+                                                    >
+                                                        <Trash2 className="h-4 w-4 mr-2" /> Delete
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
                                         </CardContent>
                                     </Card>
                                 );
@@ -737,6 +1033,493 @@ export default function AdminTasksView() {
                     )}
                 </TabsContent>
             </Tabs>
+
+            {/* ═══════════════════════════════════════════════════════
+                DIALOGS
+            ═══════════════════════════════════════════════════════ */}
+
+            {/* Task Form Dialog (Create / Edit) */}
+            <Dialog open={taskFormDialogOpen} onOpenChange={(v) => { if (!v) taskFormOnClose(); }}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>{editTask ? "Edit Task" : "Create New Task"}</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-2">
+                        {/* Task Code row */}
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium flex items-center gap-1.5">
+                                <Hash className="h-3.5 w-3.5" /> Task Code *
+                            </label>
+                            {editTask ? (
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        value={taskForm.taskCode ?? ""}
+                                        readOnly
+                                        className="font-mono text-sm bg-muted cursor-not-allowed"
+                                    />
+                                    <span className="text-xs text-muted-foreground whitespace-nowrap">Cannot be changed after creation</span>
+                                </div>
+                            ) : (
+                                <div className="flex gap-2">
+                                    <Input
+                                        value={taskForm.taskCode ?? ""}
+                                        onChange={(e) =>
+                                            setTaskForm((p) => ({
+                                                ...p,
+                                                taskCode: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ""),
+                                            }))
+                                        }
+                                        placeholder="e.g. TSK-001"
+                                        className="font-mono text-sm"
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="shrink-0 gap-1.5"
+                                        onClick={() =>
+                                            setTaskForm((p) => ({ ...p, taskCode: generateTaskCode() }))
+                                        }
+                                    >
+                                        <RefreshCw className="h-3.5 w-3.5" /> Auto
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">Title *</label>
+                            <Input
+                                value={taskForm.title ?? ""}
+                                onChange={(e) => setTaskForm((p) => ({ ...p, title: e.target.value }))}
+                                placeholder="Enter task title"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">Description</label>
+                            <Textarea
+                                value={taskForm.description ?? ""}
+                                onChange={(e) => setTaskForm((p) => ({ ...p, description: e.target.value }))}
+                                placeholder="Describe the task..."
+                                rows={3}
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <label className="text-sm font-medium">Group *</label>
+                                <Select
+                                    value={taskForm.groupId}
+                                    onValueChange={(v) => {
+                                        const grp = groups.find((g) => g.id === v);
+                                        setTaskForm((p) => ({
+                                            ...p,
+                                            groupId: v,
+                                            ...(grp?.projectId && !p.projectId
+                                                ? { projectId: grp.projectId }
+                                                : {}),
+                                        }));
+                                    }}
+                                >
+                                    <SelectTrigger><SelectValue placeholder="Select group" /></SelectTrigger>
+                                    <SelectContent>
+                                        {groups.map((g) => (
+                                            <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
+                                <label className="text-sm font-medium">Project</label>
+                                <Select
+                                    value={taskForm.projectId || "none"}
+                                    onValueChange={(v) =>
+                                        setTaskForm((p) => ({ ...p, projectId: v === "none" ? "" : v }))
+                                    }
+                                >
+                                    <SelectTrigger>
+                                        <Briefcase className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+                                        <SelectValue placeholder="No project" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">No Project</SelectItem>
+                                        {projects.map((proj) => (
+                                            <SelectItem key={proj.id} value={proj.id}>
+                                                {proj.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <label className="text-sm font-medium">Priority</label>
+                                <Select
+                                    value={taskForm.priority}
+                                    onValueChange={(v) => setTaskForm((p) => ({ ...p, priority: v as TaskPriority }))}
+                                >
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {(["low", "medium", "high", "urgent"] as TaskPriority[]).map((p) => (
+                                            <SelectItem key={p} value={p}>
+                                                <span className="flex items-center gap-2">
+                                                    <span className={`h-2 w-2 rounded-full ${PRIORITY_CONFIG[p].dot}`} />
+                                                    {PRIORITY_CONFIG[p].label}
+                                                </span>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
+                                <label className="text-sm font-medium">Due Date</label>
+                                <Input
+                                    type="date"
+                                    value={taskForm.dueDate ?? ""}
+                                    onChange={(e) => setTaskForm((p) => ({ ...p, dueDate: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid gap-2 relative">
+                            <label className="text-sm font-medium flex items-center gap-1.5">
+                                <Tag className="h-3.5 w-3.5" /> Tags
+                            </label>
+                            <Input
+                                value={taskForm.tags ?? ""}
+                                onChange={(e) => {
+                                    setTaskForm((p) => ({ ...p, tags: e.target.value }));
+                                    setShowTagSugs(true);
+                                }}
+                                onFocus={() => setShowTagSugs(true)}
+                                onBlur={() => setTimeout(() => setShowTagSugs(false), 150)}
+                                placeholder="Type to search or add tags, separate with commas…"
+                            />
+                            {showTagSugs && tagSuggestions.length > 0 && (
+                                <div className="absolute top-full left-0 right-0 z-50 bg-popover border border-border rounded-md shadow-lg overflow-hidden mt-1">
+                                    <p className="px-3 py-1.5 text-[10px] text-muted-foreground border-b font-medium uppercase tracking-wide">
+                                        Suggestions
+                                    </p>
+                                    {tagSuggestions.map((tag) => {
+                                        const registryTag = taskTags.find((t) => t.name === tag);
+                                        return (
+                                            <button
+                                                key={tag}
+                                                type="button"
+                                                className="w-full px-3 py-1.5 text-sm text-left hover:bg-muted/80 flex items-center gap-2"
+                                                onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => applyTagSuggestion(tag)}
+                                            >
+                                                <span
+                                                    className="h-3 w-3 rounded-full shrink-0"
+                                                    style={{ backgroundColor: registryTag?.color ?? "#6366f1" }}
+                                                />
+                                                {tag}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                            {currentTagList.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                    {currentTagList.map((tag) => {
+                                        const registryTag = taskTags.find((t) => t.name === tag);
+                                        const color = registryTag?.color ?? "#6366f1";
+                                        return (
+                                        <span
+                                            key={tag}
+                                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium"
+                                            style={{ backgroundColor: color + "22", color, border: `1px solid ${color}55` }}
+                                        >
+                                            <Tag className="h-2.5 w-2.5" />
+                                            {tag}
+                                            <button
+                                                type="button"
+                                                className="hover:opacity-70"
+                                                onClick={() => {
+                                                    const remaining = currentTagList.filter((t) => t !== tag).join(", ");
+                                                    setTaskForm((p) => ({ ...p, tags: remaining ? remaining + ", " : "" }));
+                                                }}
+                                            >
+                                                ×
+                                            </button>
+                                        </span>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Checkbox
+                                id="completion-required"
+                                checked={taskForm.completionRequired}
+                                onCheckedChange={(v) => setTaskForm((p) => ({ ...p, completionRequired: !!v }))}
+                            />
+                            <label htmlFor="completion-required" className="text-sm">
+                                Require photo proof for completion
+                            </label>
+                        </div>
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">
+                                Assign Employees ({taskForm.assignedTo.length} selected)
+                            </label>
+                            <div className="border rounded-md max-h-48 overflow-y-auto p-2 space-y-1">
+                                {activeEmployees.map((emp) => (
+                                    <label
+                                        key={emp.id}
+                                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer"
+                                    >
+                                        <Checkbox
+                                            checked={taskForm.assignedTo.includes(emp.id)}
+                                            onCheckedChange={() => toggleAssignee(emp.id)}
+                                        />
+                                        <Avatar className="h-6 w-6">
+                                            <AvatarFallback className="text-[9px] bg-muted">
+                                                {getInitials(emp.name)}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <span className="text-sm">{emp.name}</span>
+                                        <span className="text-xs text-muted-foreground ml-auto">{emp.department}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={taskFormOnClose}>Cancel</Button>
+                        <Button onClick={handleSaveTask}>
+                            {editTask ? "Save Changes" : "Create Task"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Task Confirmation */}
+            <AlertDialog open={!!deleteTaskId} onOpenChange={(v) => { if (!v) setDeleteTaskId(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Task</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently delete this task, its completion reports, and all comments. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteTask} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Group Form Dialog (Create / Edit) */}
+            <Dialog open={groupFormDialogOpen} onOpenChange={(v) => { if (!v) groupFormOnClose(); }}>
+                <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>{editGroup ? "Edit Group" : "Create New Group"}</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-2">
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">Group Name *</label>
+                            <Input
+                                value={groupForm.name}
+                                onChange={(e) => setGroupForm((p) => ({ ...p, name: e.target.value }))}
+                                placeholder="e.g., Marketing Campaign Q2"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">Description</label>
+                            <Textarea
+                                value={groupForm.description}
+                                onChange={(e) => setGroupForm((p) => ({ ...p, description: e.target.value }))}
+                                placeholder="Brief description of this group..."
+                                rows={2}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">Linked Project</label>
+                            <Select
+                                value={groupForm.projectId || "none"}
+                                onValueChange={(v) => setGroupForm((p) => ({ ...p, projectId: v === "none" ? "" : v }))}
+                            >
+                                <SelectTrigger><SelectValue placeholder="No project" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">No Project</SelectItem>
+                                    {projects.map((p) => (
+                                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">
+                                Members ({groupForm.memberEmployeeIds.length} selected)
+                            </label>
+                            <div className="border rounded-md max-h-48 overflow-y-auto p-2 space-y-1">
+                                {activeEmployees.map((emp) => (
+                                    <label
+                                        key={emp.id}
+                                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer"
+                                    >
+                                        <Checkbox
+                                            checked={groupForm.memberEmployeeIds.includes(emp.id)}
+                                            onCheckedChange={() => toggleGroupMember(emp.id)}
+                                        />
+                                        <Avatar className="h-6 w-6">
+                                            <AvatarFallback className="text-[9px] bg-muted">
+                                                {getInitials(emp.name)}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <span className="text-sm">{emp.name}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={groupFormOnClose}>Cancel</Button>
+                        <Button onClick={handleSaveGroup}>
+                            {editGroup ? "Save Changes" : "Create Group"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Group Confirmation */}
+            <AlertDialog open={!!deleteGroupId} onOpenChange={(v) => { if (!v) setDeleteGroupId(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Group</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will delete the group and all tasks within it. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteGroup} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Reject Completion Dialog */}
+            <Dialog open={!!rejectOpen} onOpenChange={(v) => { if (!v) { setRejectOpen(null); setRejectReason(""); } }}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Reject Completion Report</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-2">
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">Reason for rejection *</label>
+                            <Textarea
+                                value={rejectReason}
+                                onChange={(e) => setRejectReason(e.target.value)}
+                                placeholder="Explain why the completion is being rejected..."
+                                rows={3}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => { setRejectOpen(null); setRejectReason(""); }}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" onClick={handleReject} disabled={!rejectReason.trim()}>
+                            Reject
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Tag Form Dialog (Create / Edit) */}
+            <Dialog open={tagFormDialogOpen} onOpenChange={(v) => { if (!v) tagFormOnClose(); }}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>{editTag ? "Edit Tag" : "Create New Tag"}</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-2">
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">Tag Name *</label>
+                            <Input
+                                value={tagForm.name}
+                                onChange={(e) => setTagForm((p) => ({ ...p, name: e.target.value }))}
+                                placeholder="e.g. urgent, backend, design…"
+                                maxLength={40}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium">Colour</label>
+                            <div className="flex items-center gap-3">
+                                <input
+                                    type="color"
+                                    value={tagForm.color}
+                                    onChange={(e) => setTagForm((p) => ({ ...p, color: e.target.value }))}
+                                    className="h-10 w-16 cursor-pointer rounded border border-border bg-transparent p-1"
+                                />
+                                <span
+                                    className="flex-1 h-8 rounded-md border border-border/50"
+                                    style={{ backgroundColor: tagForm.color }}
+                                />
+                                <span className="text-xs text-muted-foreground font-mono">{tagForm.color}</span>
+                            </div>
+                            <div className="flex gap-2 flex-wrap mt-1">
+                                {["#6366f1","#ec4899","#f59e0b","#10b981","#3b82f6","#ef4444","#8b5cf6","#06b6d4","#84cc16","#f97316"].map((c) => (
+                                    <button
+                                        key={c}
+                                        type="button"
+                                        className="h-6 w-6 rounded-full border-2 transition-all"
+                                        style={{
+                                            backgroundColor: c,
+                                            borderColor: tagForm.color === c ? "currentColor" : "transparent",
+                                            outline: tagForm.color === c ? "2px solid currentColor" : "none",
+                                        }}
+                                        onClick={() => setTagForm((p) => ({ ...p, color: c }))}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                        {tagForm.name.trim() && (
+                            <div className="flex items-center gap-2 p-2 rounded-md bg-muted/50 border border-border/50">
+                                <span className="text-xs text-muted-foreground">Preview:</span>
+                                <span
+                                    className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium"
+                                    style={{ backgroundColor: tagForm.color + "22", color: tagForm.color, border: `1px solid ${tagForm.color}55` }}
+                                >
+                                    <Tag className="h-2.5 w-2.5" /> {tagForm.name.trim()}
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={tagFormOnClose}>Cancel</Button>
+                        <Button onClick={handleSaveTag}>
+                            {editTag ? "Save Changes" : "Create Tag"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Tag Confirmation */}
+            <AlertDialog open={!!deleteTagId} onOpenChange={(v) => { if (!v) setDeleteTagId(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Tag</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {(() => {
+                                const tag = taskTags.find((t) => t.id === deleteTagId);
+                                const count = tag ? tasks.filter((t) => t.tags?.includes(tag.name)).length : 0;
+                                return count > 0
+                                    ? `"${tag?.name}" is used on ${count} task${count !== 1 ? "s" : ""}. The tag will be removed from this registry but task tags won't be modified.`
+                                    : `Delete tag "${tag?.name}"? This action cannot be undone.`;
+                            })()}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteTag} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
