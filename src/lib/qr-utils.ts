@@ -4,18 +4,18 @@
  * Supports two QR formats:
  *
  * 1. **Daily QR** (recommended) — rotates every day, HMAC-signed.
- *    Format: `NEXHRMS-DAY:<employeeId>:<YYYY-MM-DD>:<hmac12>`
+ *    Format: `SDS-DAY:<employeeId>:<YYYY-MM-DD>:<hmac12>`
  *    Employees view this on their dashboard; it changes at midnight.
  *    Can be used for both check-in and check-out within the same day.
  *
  * 2. **Legacy static QR** — permanent, never changes.
- *    Format: `NEXHRMS-QR:<employeeId>:<hmac8>`
+ *    Format: `SDS-QR:<employeeId>:<hmac8>`
  *    Kept for backward compatibility only.
  */
 
-const QR_SECRET = process.env.QR_HMAC_SECRET || "nexhrms-qr-attendance-2025";
-const QR_PREFIX = "NEXHRMS-QR:";
-const DAILY_PREFIX = "NEXHRMS-DAY:";
+const QR_SECRET = process.env.QR_HMAC_SECRET || "soren-qr-attendance-2025";
+const QR_PREFIX = "SDS-QR:";
+const DAILY_PREFIX = "SDS-DAY:";
 
 // Log warning if using fallback secret (only once)
 if (!process.env.QR_HMAC_SECRET && typeof process !== "undefined") {
@@ -55,7 +55,7 @@ export function getTodayDateString(): string {
 
 /**
  * Generate a daily QR payload for an employee.
- * Format: NEXHRMS-DAY:<employeeId>:<YYYY-MM-DD>:<hmac12>
+ * Format: SDS-DAY:<employeeId>:<YYYY-MM-DD>:<hmac12>
  * A new payload is produced each day; old ones become invalid.
  */
 export async function generateDailyQRPayload(
@@ -105,7 +105,7 @@ export async function parseDailyQRPayload(
 
 /**
  * Generate a static QR code payload for an employee.
- * Format: NEXHRMS-QR:<employeeId>:<hmac8chars>
+ * Format: SDS-QR:<employeeId>:<hmac8chars>
  * @deprecated Use generateDailyQRPayload instead
  */
 export async function generateEmployeeQRPayload(employeeId: string): Promise<string> {
@@ -141,7 +141,7 @@ export type QRType = "daily" | "static" | "dynamic" | "unknown";
 export function detectQRType(payload: string): QRType {
     if (payload.startsWith(DAILY_PREFIX)) return "daily";
     if (payload.startsWith(QR_PREFIX)) return "static";
-    if (payload.startsWith("NEXHRMS-DYN-")) return "dynamic";
+    if (payload.startsWith("SDS-DYN-")) return "dynamic";
     return "unknown";
 }
 

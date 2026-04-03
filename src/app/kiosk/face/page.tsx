@@ -7,7 +7,7 @@ import { useEmployeesStore } from "@/store/employees.store";
 import { useAppearanceStore } from "@/store/appearance.store";
 import { useKioskStore } from "@/store/kiosk.store";
 import { useProjectsStore } from "@/store/projects.store";
-import { loadFaceModels, detectFace, detectFaceQuick, averageDescriptors, descriptorConsistency, computeDistance } from "@/lib/face-api";
+import { loadFaceModels, detectFace, detectFaceQuick, averageDescriptors, descriptorConsistency } from "@/lib/face-api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -49,10 +49,10 @@ export default function FaceKioskPage() {
     // Persistent device identifier (same pattern as QR kiosk)
     const [deviceId] = useState(() => {
         if (typeof window === "undefined") return "";
-        const stored = localStorage.getItem("nexhrms-kiosk-face-device-id");
+        const stored = localStorage.getItem("soren-kiosk-face-device-id");
         if (stored) return stored;
         const id = `KIOSK-FACE-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-        localStorage.setItem("nexhrms-kiosk-face-device-id", id);
+        localStorage.setItem("soren-kiosk-face-device-id", id);
         return id;
     });
 
@@ -378,7 +378,7 @@ export default function FaceKioskPage() {
     handleScanRef.current = handleScan;
 
     // ── Check-in/out ──
-    const checkWorkDay = (empId: string) => {
+    const checkWorkDay = useCallback((empId: string) => {
         if (!ks.warnOffDay) return;
         const emp = employees.find((e) => e.id === empId);
         if (emp?.workDays?.length) {
@@ -387,7 +387,7 @@ export default function FaceKioskPage() {
                 toast.warning(`${day} is outside your scheduled days.`, { duration: 4000 });
             }
         }
-    };
+    }, [ks.warnOffDay, employees]);
 
     const handleConfirm = useCallback(() => {
         // Clear any auto-confirm countdown
@@ -443,7 +443,7 @@ export default function FaceKioskPage() {
             setMatchDistance(null);
             setScanState("idle");
         }, ks.feedbackDuration);
-    }, [matchedName, mode, employees, getProjectForEmployee, ks, checkIn, checkOut, appendEvent, deviceId]);
+    }, [matchedName, mode, employees, getProjectForEmployee, ks, checkIn, checkOut, appendEvent, deviceId, checkWorkDay]);
 
     // Ref so auto-confirm timer can call the latest handleConfirm
     const handleConfirmRef = useRef(handleConfirm);
@@ -506,7 +506,7 @@ export default function FaceKioskPage() {
                         <img src={logoUrl} alt={companyName}
                             className={cn("h-7 max-w-[100px] object-contain", !isAutoTheme && "brightness-0 invert opacity-90")} />
                     ) : (
-                        <span className={cn("font-semibold text-sm", textMutedClass)}>{companyName || "NexHRMS"}</span>
+                        <span className={cn("font-semibold text-sm", textMutedClass)}>{companyName || "Soren Data Solutions Inc."}</span>
                     )}
                 </div>
             </header>
@@ -790,7 +790,7 @@ export default function FaceKioskPage() {
             {/* Footer */}
             <footer className="relative z-10 w-full flex items-center justify-center pb-4 sm:pb-6">
                 <div className={cn("flex items-center gap-2 text-xs", textFaintClass)}>
-                    <span>{companyName || "NexHRMS"} • Face Recognition Kiosk</span>
+                    <span>{companyName || "Soren Data Solutions Inc."} • Face Recognition Kiosk</span>
                 </div>
             </footer>
         </div>

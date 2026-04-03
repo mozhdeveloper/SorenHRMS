@@ -19,7 +19,7 @@ interface PrintablePayslipProps {
 }
 
 export function PrintablePayslip({
-    payslip, employeeName, department, companyName = "NexHRMS", open, onClose,
+    payslip, employeeName, department, companyName = "Soren Data Solutions Inc.", open, onClose,
 }: PrintablePayslipProps) {
     const printRef = useRef<HTMLDivElement>(null);
 

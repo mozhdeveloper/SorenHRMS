@@ -57,7 +57,7 @@ export function RealFaceVerification({
     disabled,
     autoStart = false,
     employeeId,
-    required = false,
+    required: _required = false,
 }: RealFaceVerificationProps) {
     const currentUserId = useAuthStore((s) => s.currentUser?.id);
     const [phase, setPhase] = useState<Phase>("loading");
@@ -267,27 +267,6 @@ export function RealFaceVerification({
         };
     }, [phase, videoReady]);
 
-    // ── Auto-scan when face is stable ──
-    useEffect(() => {
-        if (phase !== "camera" || !videoReady) return;
-
-        if (stableCountRef.current >= 4 && guidanceColor === "green" && guidanceMsg.includes("Scanning")) {
-            if (!autoScanTimerRef.current) {
-                autoScanTimerRef.current = setTimeout(() => {
-                    autoScanTimerRef.current = null;
-                    if (phase === "camera") {
-                        handleScan();
-                    }
-                }, 400);
-            }
-        } else {
-            if (autoScanTimerRef.current) {
-                clearTimeout(autoScanTimerRef.current);
-                autoScanTimerRef.current = null;
-            }
-        }
-    }, [guidanceColor, guidanceMsg, phase, videoReady]);
-
     const handleScan = useCallback(async () => {
         const video = videoRef.current;
         if (!video || !videoReady) return;
@@ -458,6 +437,27 @@ export function RealFaceVerification({
             setPhase("failed");
         }
     }, [videoReady, employeeId, onVerified, cleanup, isMobile]);
+
+    // ── Auto-scan when face is stable ──
+    useEffect(() => {
+        if (phase !== "camera" || !videoReady) return;
+
+        if (stableCountRef.current >= 4 && guidanceColor === "green" && guidanceMsg.includes("Scanning")) {
+            if (!autoScanTimerRef.current) {
+                autoScanTimerRef.current = setTimeout(() => {
+                    autoScanTimerRef.current = null;
+                    if (phase === "camera") {
+                        handleScan();
+                    }
+                }, 400);
+            }
+        } else {
+            if (autoScanTimerRef.current) {
+                clearTimeout(autoScanTimerRef.current);
+                autoScanTimerRef.current = null;
+            }
+        }
+    }, [guidanceColor, guidanceMsg, phase, videoReady, handleScan]);
 
     const handleRetry = useCallback(() => {
         cleanup();

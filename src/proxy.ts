@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { canAccessRoute } from "@/lib/permissions-server";
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -99,6 +100,37 @@ export async function proxy(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
+  }
+
+  // ─── Server-side Permission Enforcement ───────────────────────────────────
+  // Fetch user's role from Supabase and check if they can access this route.
+  // This prevents malicious users from bypassing client-side permission checks.
+  const pathname = request.nextUrl.pathname;
+  
+  // Skip permission check for API routes (they have their own auth)
+  if (!pathname.startsWith("/api/")) {
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+
+      const userRole = profile?.role || "employee";
+      const access = canAccessRoute(userRole, pathname);
+
+      if (!access.allowed) {
+        // User doesn't have permission - redirect to their dashboard
+        const dashboardUrl = request.nextUrl.clone();
+        dashboardUrl.pathname = `/${userRole}/dashboard`;
+        dashboardUrl.searchParams.set("access_denied", "1");
+        return NextResponse.redirect(dashboardUrl);
+      }
+    } catch (permErr) {
+      // Non-fatal: if permission check fails, allow access (fail open for now)
+      // In production, you might want to fail closed instead
+      console.error("[proxy] Permission check failed:", permErr);
+    }
   }
 
   // NOTE: We intentionally do NOT redirect authenticated users away from /login.

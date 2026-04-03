@@ -32,6 +32,6 @@ export const useEventsStore = create<EventsState>()(
                 set((s) => ({ events: s.events.filter((e) => e.id !== id) })),
             resetToSeed: () => set({ events: SEED_EVENTS }),
         }),
-        { name: "nexhrms-events", version: 1 }
+        { name: "soren-events", version: 1 }
     )
 );

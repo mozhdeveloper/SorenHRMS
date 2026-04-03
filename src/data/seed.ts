@@ -18,14 +18,14 @@ import type {
 
 // ─── Demo Users ──────────────────────────────────────────────
 export const DEMO_USERS: DemoUser[] = [
-    { id: "U001", name: "Alex Rivera", role: "admin", email: "admin@nexhrms.com" },
-    { id: "U002", name: "Jordan Lee", role: "hr", email: "hr@nexhrms.com" },
-    { id: "U003", name: "Morgan Chen", role: "finance", email: "finance@nexhrms.com" },
-    { id: "U004", name: "Sam Torres", role: "employee", email: "employee@nexhrms.com" },
-    { id: "U006", name: "Pat Reyes", role: "supervisor", email: "supervisor@nexhrms.com" },
-    { id: "U007", name: "Dana Cruz", role: "payroll_admin", email: "payroll@nexhrms.com" },
-    { id: "U008", name: "Rene Santos", role: "auditor", email: "auditor@nexhrms.com" },
-    { id: "U009", name: "Jamie Reyes", role: "employee", email: "qr@nexhrms.com" },
+    { id: "U001", name: "Alex Rivera", role: "admin", email: "admin@sdsi.com" },
+    { id: "U002", name: "Jordan Lee", role: "hr", email: "hr@sdsi.com" },
+    { id: "U003", name: "Morgan Chen", role: "finance", email: "finance@sdsi.com" },
+    { id: "U004", name: "Sam Torres", role: "employee", email: "employee@sdsi.com" },
+    { id: "U006", name: "Pat Reyes", role: "supervisor", email: "supervisor@sdsi.com" },
+    { id: "U007", name: "Dana Cruz", role: "payroll_admin", email: "payroll@sdsi.com" },
+    { id: "U008", name: "Rene Santos", role: "auditor", email: "auditor@sdsi.com" },
+    { id: "U009", name: "Jamie Reyes", role: "employee", email: "qr@sdsi.com" },
 ];
 
 // ─── Employees ───────────────────────────────────────────────
@@ -56,9 +56,9 @@ export const SEED_EMPLOYEES: Employee[] = [
     { id: "EMP024", name: "Leo Campbell", email: "leo@company.com", role: "QA Engineer", department: "Engineering", status: "active", workType: "WFH", salary: 87000, joinDate: "2022-12-10", productivity: 86, location: "Manila", phone: "+63-555-0124", birthday: "1994-10-31" },
     { id: "EMP025", name: "Aria Evans", email: "aria@company.com", role: "HR Specialist", department: "Human Resources", status: "active", workType: "HYBRID", salary: 74000, joinDate: "2023-08-01", productivity: 80, location: "Singapore", phone: "+65-555-0125", birthday: "1995-12-20" },
     // Sam Torres (Employee demo user mapped to an EMP record)
-    { id: "EMP026", name: "Sam Torres", email: "employee@nexhrms.com", role: "Frontend Developer", department: "Engineering", status: "active", workType: "WFO", salary: 88000, joinDate: "2024-01-10", productivity: 82, location: "Manila", phone: "+63-555-0126", birthday: "1995-04-20", teamLeader: "EMP010", profileId: "U004" },
+    { id: "EMP026", name: "Sam Torres", email: "employee@sdsi.com", role: "Frontend Developer", department: "Engineering", status: "active", workType: "WFO", salary: 88000, joinDate: "2024-01-10", productivity: 82, location: "Manila", phone: "+63-555-0126", birthday: "1995-04-20", teamLeader: "EMP010", profileId: "U004" },
     // Jamie Reyes (QR demo user)
-    { id: "EMP027", name: "Jamie Reyes", email: "qr@nexhrms.com", role: "Field Technician", department: "Engineering", status: "active", workType: "WFO", salary: 75000, joinDate: "2024-06-01", productivity: 85, location: "Manila", phone: "+63-555-0127", birthday: "1996-08-15", profileId: "U009", pin: "777777" },
+    { id: "EMP027", name: "Jamie Reyes", email: "qr@sdsi.com", role: "Field Technician", department: "Engineering", status: "active", workType: "WFO", salary: 75000, joinDate: "2024-06-01", productivity: 85, location: "Manila", phone: "+63-555-0127", birthday: "1996-08-15", profileId: "U009", pin: "777777" },
 ];
 
 // ─── Seed Projects ───────────────────────────────────────────
@@ -158,17 +158,17 @@ export const SEED_ATTENDANCE: AttendanceLog[] = generateAttendanceLogs();
 
 // ─── Leave Requests ──────────────────────────────────────────
 export const SEED_LEAVES: LeaveRequest[] = [
-    { id: "LV001", employeeId: "EMP001", type: "VL", startDate: "2026-02-20", endDate: "2026-02-22", reason: "Family vacation planned for the long weekend.", status: "pending" },
-    { id: "LV002", employeeId: "EMP003", type: "SL", startDate: "2026-02-10", endDate: "2026-02-11", reason: "Not feeling well, need to rest.", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-02-09" },
-    { id: "LV003", employeeId: "EMP005", type: "EL", startDate: "2026-02-15", endDate: "2026-02-15", reason: "Family emergency.", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-02-14" },
-    { id: "LV004", employeeId: "EMP009", type: "VL", startDate: "2026-03-01", endDate: "2026-03-05", reason: "Planned travel vacation.", status: "pending" },
-    { id: "LV005", employeeId: "EMP012", type: "SL", startDate: "2026-02-18", endDate: "2026-02-18", reason: "Dental appointment.", status: "rejected", reviewedBy: "EMP006", reviewedAt: "2026-02-17" },
-    { id: "LV006", employeeId: "EMP015", type: "VL", startDate: "2026-02-25", endDate: "2026-02-28", reason: "Personal time off.", status: "pending" },
-    { id: "LV007", employeeId: "EMP002", type: "SL", startDate: "2026-01-20", endDate: "2026-01-21", reason: "Flu symptoms.", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-01-19" },
-    { id: "LV008", employeeId: "EMP018", type: "OTHER", startDate: "2026-02-14", endDate: "2026-02-14", reason: "Conference attendance.", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-02-12" },
-    { id: "LV009", employeeId: "EMP008", type: "ML", startDate: "2026-03-10", endDate: "2026-05-31", reason: "Maternity leave (105 days).", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-03-05" },
-    { id: "LV010", employeeId: "EMP011", type: "PL", startDate: "2026-03-10", endDate: "2026-03-16", reason: "Paternity leave — newborn.", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-03-08" },
-    { id: "LV011", employeeId: "EMP014", type: "SPL", startDate: "2026-04-01", endDate: "2026-04-07", reason: "Solo parent leave.", status: "pending" },
+    { id: "LV001", employeeId: "EMP001", type: "VL", startDate: "2026-02-20", endDate: "2026-02-22", duration: "full_day", reason: "Family vacation planned for the long weekend.", status: "pending" },
+    { id: "LV002", employeeId: "EMP003", type: "SL", startDate: "2026-02-10", endDate: "2026-02-11", duration: "full_day", reason: "Not feeling well, need to rest.", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-02-09" },
+    { id: "LV003", employeeId: "EMP005", type: "EL", startDate: "2026-02-15", endDate: "2026-02-15", duration: "full_day", reason: "Family emergency.", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-02-14" },
+    { id: "LV004", employeeId: "EMP009", type: "VL", startDate: "2026-03-01", endDate: "2026-03-05", duration: "full_day", reason: "Planned travel vacation.", status: "pending" },
+    { id: "LV005", employeeId: "EMP012", type: "SL", startDate: "2026-02-18", endDate: "2026-02-18", duration: "half_day_am", reason: "Dental appointment.", status: "rejected", reviewedBy: "EMP006", reviewedAt: "2026-02-17" },
+    { id: "LV006", employeeId: "EMP015", type: "VL", startDate: "2026-02-25", endDate: "2026-02-28", duration: "full_day", reason: "Personal time off.", status: "pending" },
+    { id: "LV007", employeeId: "EMP002", type: "SL", startDate: "2026-01-20", endDate: "2026-01-21", duration: "full_day", reason: "Flu symptoms.", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-01-19" },
+    { id: "LV008", employeeId: "EMP018", type: "OTHER", startDate: "2026-02-14", endDate: "2026-02-14", duration: "half_day_pm", reason: "Conference attendance.", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-02-12" },
+    { id: "LV009", employeeId: "EMP008", type: "ML", startDate: "2026-03-10", endDate: "2026-05-31", duration: "full_day", reason: "Maternity leave (105 days).", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-03-05" },
+    { id: "LV010", employeeId: "EMP011", type: "PL", startDate: "2026-03-10", endDate: "2026-03-16", duration: "full_day", reason: "Paternity leave — newborn.", status: "approved", reviewedBy: "EMP006", reviewedAt: "2026-03-08" },
+    { id: "LV011", employeeId: "EMP014", type: "SPL", startDate: "2026-04-01", endDate: "2026-04-07", duration: "full_day", reason: "Solo parent leave.", status: "pending" },
 ];
 
 // ─── Payslips (based on MONTHLY salary, semi-monthly 1st cutoff Jan 1–15) ────
@@ -245,7 +245,7 @@ export const SEED_TEXT_CHANNELS: TextChannel[] = [
 
 // ─── Announcements ───────────────────────────────────────────
 export const SEED_ANNOUNCEMENTS: Announcement[] = [
-    { id: "ANN-001", subject: "March payslip released", body: "Hi everyone, January semi-monthly payslips have been published. Please log in to NexHRMS to view and sign your payslip. Contact finance if you have any discrepancies.", channel: "email", scope: "all_employees", sentBy: "EMP007", sentAt: "2026-01-22T10:00:00Z", status: "simulated", readBy: ["EMP001", "EMP002", "EMP003"] },
+    { id: "ANN-001", subject: "March payslip released", body: "Hi everyone, January semi-monthly payslips have been published. Please log in to Soren Data Solutions to view and sign your payslip. Contact finance if you have any discrepancies.", channel: "email", scope: "all_employees", sentBy: "EMP007", sentAt: "2026-01-22T10:00:00Z", status: "simulated", readBy: ["EMP001", "EMP002", "EMP003"] },
     { id: "ANN-002", subject: "Weather alert: postpone outdoor tasks", body: "Due to Typhoon Signal #2 warning, all outdoor field tasks are postponed until further notice. Stay safe and work from home if possible.", channel: "whatsapp", scope: "task_group", targetGroupId: "TG-001", sentBy: "EMP006", sentAt: "2026-02-18T07:00:00Z", status: "simulated", readBy: ["EMP003", "EMP005"] },
     { id: "ANN-003", subject: "Training schedule update", body: "The leadership training originally scheduled for March 5 has been moved to March 12. Please update your calendars. Venue remains the same — Conference Room B.", channel: "email", scope: "selected_employees", targetEmployeeIds: ["EMP005", "EMP010", "EMP020"], sentBy: "EMP006", sentAt: "2026-03-01T09:00:00Z", status: "simulated", readBy: [] },
     { id: "ANN-004", subject: "Equipment list attached", body: "Please review the attached equipment checklist before proceeding with the Pasig warehouse check. Mark off each item as you verify it.", channel: "in_app", scope: "task_assignees", targetTaskId: "TSK-003", sentBy: "EMP006", sentAt: "2026-03-02T09:30:00Z", status: "simulated", readBy: ["EMP003"] },

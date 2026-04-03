@@ -41,9 +41,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Slider } from "@/components/ui/slider";
 import { nanoid } from "nanoid";
-import { Search, SlidersHorizontal, Eye, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, UserMinus, Pencil, Mail, MapPin, Phone, Cake, DollarSign, RefreshCw, KeyRound, ShieldCheck, Briefcase, User, FolderKanban, Clock, Heart, Users, Tag, Crown, Building2 } from "lucide-react";
+import { Search, SlidersHorizontal, Eye, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, UserMinus, Pencil, Mail, MapPin, Phone, Cake, DollarSign, RefreshCw, KeyRound, ShieldCheck, Briefcase, User, FolderKanban, Users, Tag, Crown, Building2 } from "lucide-react";
 import { getInitials, formatCurrency, formatDate, validatePhone } from "@/lib/format";
-import { DEPARTMENTS } from "@/lib/constants";
 import Link from "next/link";
 import { useRoleHref } from "@/lib/hooks/use-role-href";
 import { toast } from "sonner";

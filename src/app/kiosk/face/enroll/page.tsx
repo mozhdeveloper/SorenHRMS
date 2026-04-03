@@ -175,7 +175,7 @@ export default function FaceEnrollPage() {
         setPreviewUrl(bestImageData);
         setState("captured");
         toast.success(`Face captured (${validFrames.length} frames, best: ${(bestScore * 100).toFixed(0)}%)`);
-    }, []);
+    }, [employeeId]);
 
     const handleRetake = useCallback(() => {
         setDescriptor(null);
@@ -393,7 +393,7 @@ export default function FaceEnrollPage() {
             {/* Footer */}
             <footer className="relative z-10 w-full flex items-center justify-center pb-4 sm:pb-6">
                 <div className="flex items-center gap-2 text-white/20 text-xs">
-                    <span>{companyName || "NexHRMS"} • Face Enrollment</span>
+                    <span>{companyName || "Soren Data Solutions Inc."} • Face Enrollment</span>
                 </div>
             </footer>
         </div>

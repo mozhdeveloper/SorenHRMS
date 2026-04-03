@@ -247,7 +247,6 @@ Respond with ONLY a JSON object (no markdown, no code fences):
                 // Fallback: check for keywords
                 const lower = content.toLowerCase();
                 const verified = lower.includes('"verified": true') || lower.includes('"verified":true');
-                const hasLiveness = lower.includes("liveness") && lower.includes("score");
                 
                 result = {
                     verified,

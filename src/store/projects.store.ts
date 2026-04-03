@@ -65,6 +65,6 @@ export const useProjectsStore = create<ProjectsState>()(
             },
             resetToSeed: () => set({ projects: SEED_PROJECTS }),
         }),
-        { name: "nexhrms-projects", version: 1 }
+        { name: "soren-projects", version: 1 }
     )
 );

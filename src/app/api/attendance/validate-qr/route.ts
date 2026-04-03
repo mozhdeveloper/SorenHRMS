@@ -3,6 +3,7 @@ import { validateAnyQR } from "@/services/qr-token.service";
 import { createAdminSupabaseClient } from "@/services/supabase-server";
 import { kioskRateLimiter, getClientIp } from "@/lib/rate-limit";
 import { validateKioskAuth } from "@/lib/kiosk-auth";
+import { GPS_CONFIG } from "@/lib/constants";
 import { nanoid } from "nanoid";
 
 /**
@@ -65,6 +66,13 @@ export async function POST(request: NextRequest) {
             ) {
                 return NextResponse.json(
                     { valid: false, message: "Invalid location coordinates" },
+                    { status: 400 }
+                );
+            }
+            // GPS accuracy validation (reject high-accuracy readings)
+            if (typeof location.accuracy === "number" && location.accuracy > GPS_CONFIG.MAX_ACCURACY_METERS) {
+                return NextResponse.json(
+                    { valid: false, message: `GPS accuracy too low (${Math.round(location.accuracy)}m > ${GPS_CONFIG.MAX_ACCURACY_METERS}m threshold). Please move to an area with better GPS signal.` },
                     { status: 400 }
                 );
             }

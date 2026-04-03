@@ -38,19 +38,34 @@ export default function EmployeeMessagesView() {
     const { groups, tasks } = useTasksStore();
     const employees = useEmployeesStore((s) => s.employees);
     const currentUser = useAuthStore((s) => s.currentUser);
+    const accounts = useAuthStore((s) => s.accounts);
+
+    // Resolve the employee record for the current auth user.
+    // Channels use EMP-prefixed IDs; auth users have U-prefixed IDs.
+    const effectiveId = useMemo(() => {
+        const emp = employees.find(
+            (e) => e.profileId === currentUser.id || e.email === currentUser.email
+        );
+        return emp?.id ?? currentUser.id;
+    }, [employees, currentUser.id, currentUser.email]);
+
+    const getEmpName = (id: string) =>
+        employees.find((e) => e.id === id)?.name ||
+        accounts.find((a) => a.id === id)?.name ||
+        id;
 
     const myChannels = useMemo(
-        () => getChannelsForEmployee(currentUser.id),
-        [getChannelsForEmployee, currentUser.id],
+        () => getChannelsForEmployee(effectiveId),
+        [getChannelsForEmployee, effectiveId],
     );
 
     const myAnnouncements = useMemo(
         () => getAnnouncementsForEmployee(
-            currentUser.id,
+            effectiveId,
             groups.map((g) => ({ id: g.id, memberEmployeeIds: g.memberEmployeeIds })),
             tasks.map((t) => ({ id: t.id, assignedTo: t.assignedTo })),
         ),
-        [getAnnouncementsForEmployee, currentUser.id, groups, tasks],
+        [getAnnouncementsForEmployee, effectiveId, groups, tasks],
     );
 
     const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
@@ -66,11 +81,11 @@ export default function EmployeeMessagesView() {
     useEffect(() => {
         if (!selectedChannelId) return;
         channelMsgs.forEach((m) => {
-            if (m.employeeId !== currentUser.id && !m.readBy.includes(currentUser.id)) {
-                markMessageRead(m.id, currentUser.id);
+            if (m.employeeId !== effectiveId && !m.readBy.includes(effectiveId)) {
+                markMessageRead(m.id, effectiveId);
             }
         });
-    }, [selectedChannelId, channelMsgs, currentUser.id, markMessageRead]);
+    }, [selectedChannelId, channelMsgs, effectiveId, markMessageRead]);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -78,13 +93,12 @@ export default function EmployeeMessagesView() {
 
     const handleSend = () => {
         if (!chatMessage.trim() || !selectedChannelId) return;
-        sendMessage({ channelId: selectedChannelId, employeeId: currentUser.id, message: chatMessage.trim() });
+        sendMessage({ channelId: selectedChannelId, employeeId: effectiveId, message: chatMessage.trim() });
         setChatMessage("");
     };
 
-    const getEmpName = (id: string) => employees.find((e) => e.id === id)?.name ?? id;
-    const totalUnread = myChannels.reduce((sum, ch) => sum + getUnreadCount(ch.id, currentUser.id), 0);
-    const unreadAnn = myAnnouncements.filter((a) => !a.readBy.includes(currentUser.id)).length;
+    const totalUnread = myChannels.reduce((sum, ch) => sum + getUnreadCount(ch.id, effectiveId), 0);
+    const unreadAnn = myAnnouncements.filter((a) => !a.readBy.includes(effectiveId)).length;
 
     return (
         <div className="space-y-4 pb-6">
@@ -132,7 +146,7 @@ export default function EmployeeMessagesView() {
                                     ) : (
                                         <div className="divide-y divide-border/50">
                                             {myChannels.map((ch) => {
-                                                const unread = getUnreadCount(ch.id, currentUser.id);
+                                                const unread = getUnreadCount(ch.id, effectiveId);
                                                 return (
                                                     <button
                                                         key={ch.id}
@@ -184,7 +198,7 @@ export default function EmployeeMessagesView() {
                                                     <p className="text-center text-xs text-muted-foreground py-6">No messages yet. Say hello!</p>
                                                 )}
                                                 {channelMsgs.map((msg) => {
-                                                    const isMine = msg.employeeId === currentUser.id;
+                                                    const isMine = msg.employeeId === effectiveId;
                                                     return (
                                                         <div key={msg.id} className={`flex gap-2.5 ${isMine ? "flex-row-reverse" : ""}`}>
                                                             <Avatar className="h-8 w-8 shrink-0">
@@ -254,14 +268,14 @@ export default function EmployeeMessagesView() {
                     ) : (
                         [...myAnnouncements].reverse().map((ann) => {
                             const ChannelIcon = CHANNEL_ICONS[ann.channel];
-                            const isRead = ann.readBy.includes(currentUser.id);
+                            const isRead = ann.readBy.includes(effectiveId);
                             return (
                                 <Card
                                     key={ann.id}
                                     className={`border transition-colors cursor-pointer touch-manipulation active:scale-[0.99] ${
                                         isRead ? "border-border/50" : "border-primary/40 bg-primary/5"
                                     }`}
-                                    onClick={() => { if (!isRead) markAnnouncementRead(ann.id, currentUser.id); }}
+                                    onClick={() => { if (!isRead) markAnnouncementRead(ann.id, effectiveId); }}
                                 >
                                     <CardContent className="p-4 space-y-2">
                                         <div className="flex items-start gap-2">

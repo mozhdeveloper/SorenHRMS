@@ -468,7 +468,7 @@ export async function matchFace(
     const supabase = await createAdminSupabaseClient();
 
     // Fetch embeddings only — exclude reference_image to avoid loading ~100KB per row
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from("face_enrollments")
       .select("employee_id, embedding")
       .eq("is_active", true)

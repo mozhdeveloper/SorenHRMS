@@ -334,27 +334,6 @@ export default function FaceEnrollmentPage() {
         };
     }, [state, videoReady, step]);
 
-    // ── Auto-capture when face is stable for long enough ──
-    useEffect(() => {
-        if (state !== "camera" || !videoReady) return;
-
-        if (stableCountRef.current >= 5 && guidanceColor === "green" && guidanceMsg.includes("Capturing")) {
-            if (!autoCaptureTimerRef.current) {
-                autoCaptureTimerRef.current = setTimeout(() => {
-                    autoCaptureTimerRef.current = null;
-                    if (state === "camera") {
-                        captureAndDetect();
-                    }
-                }, 400);
-            }
-        } else {
-            if (autoCaptureTimerRef.current) {
-                clearTimeout(autoCaptureTimerRef.current);
-                autoCaptureTimerRef.current = null;
-            }
-        }
-    }, [guidanceColor, guidanceMsg, state, videoReady]);
-
     const captureAndDetect = useCallback(async () => {
         setState("detecting");
         trackingRef.current = false;
@@ -453,6 +432,27 @@ export default function FaceEnrollmentPage() {
         setState("captured");
         toast.success(`Face detected (confidence: ${(best.score * 100).toFixed(0)}%, ${topDescriptors.length} frames averaged)`);
     }, [isMobile, step]);
+
+    // ── Auto-capture when face is stable for long enough ──
+    useEffect(() => {
+        if (state !== "camera" || !videoReady) return;
+
+        if (stableCountRef.current >= 5 && guidanceColor === "green" && guidanceMsg.includes("Capturing")) {
+            if (!autoCaptureTimerRef.current) {
+                autoCaptureTimerRef.current = setTimeout(() => {
+                    autoCaptureTimerRef.current = null;
+                    if (state === "camera") {
+                        captureAndDetect();
+                    }
+                }, 400);
+            }
+        } else {
+            if (autoCaptureTimerRef.current) {
+                clearTimeout(autoCaptureTimerRef.current);
+                autoCaptureTimerRef.current = null;
+            }
+        }
+    }, [guidanceColor, guidanceMsg, state, videoReady, captureAndDetect]);
 
     const handleRetake = useCallback(() => {
         setDescriptors((prev) => prev.slice(0, -1));

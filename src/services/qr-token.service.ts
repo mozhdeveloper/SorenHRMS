@@ -30,7 +30,7 @@ export async function generateQRToken(
     const supabase = await createAdminSupabaseClient();
 
     // Generate unique token
-    const token = `NEXHRMS-DYN-${nanoid(TOKEN_LENGTH)}`;
+    const token = `SDS-DYN-${nanoid(TOKEN_LENGTH)}`;
     const expiresAt = new Date(Date.now() + TOKEN_EXPIRY_SECONDS * 1000).toISOString();
 
     // Insert token into database

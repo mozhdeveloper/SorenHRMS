@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Palmtree, Stethoscope, AlertTriangle, FileQuestion, Baby, Heart, Users } from "lucide-react";
 import { toast } from "sonner";
-import type { LeaveType } from "@/types";
+import type { LeaveType, LeaveDuration } from "@/types";
 
 /* ═══════════════════════════════════════════════════════════════
    EMPLOYEE VIEW — My Leave Dashboard
@@ -39,9 +39,21 @@ const LEAVE_ICONS: Record<LeaveType, React.ReactNode> = {
     SPL: <Users className="h-4 w-4" />,
 };
 
-function daysBetween(a: string, b: string) {
+const DURATION_LABELS: Record<LeaveDuration, string> = {
+    full_day: "Full Day",
+    half_day_am: "Half Day (Morning)",
+    half_day_pm: "Half Day (Afternoon)",
+    hourly: "Hourly",
+};
+
+function daysBetween(a: string, b: string, duration: LeaveDuration = "full_day") {
     const d1 = new Date(a); const d2 = new Date(b);
-    return Math.max(1, Math.round((d2.getTime() - d1.getTime()) / 86400000) + 1);
+    const fullDays = Math.max(1, Math.round((d2.getTime() - d1.getTime()) / 86400000) + 1);
+    // Half-day only applies for single-day requests
+    if (fullDays === 1 && (duration === "half_day_am" || duration === "half_day_pm")) {
+        return 0.5;
+    }
+    return fullDays;
 }
 
 const leaveStatusColors: Record<string, string> = {
@@ -61,6 +73,7 @@ export default function EmployeeLeaveView() {
     const [formType, setFormType] = useState<LeaveType>("VL");
     const [formStart, setFormStart] = useState("");
     const [formEnd, setFormEnd] = useState("");
+    const [formDuration, setFormDuration] = useState<LeaveDuration>("full_day");
     const [formReason, setFormReason] = useState("");
 
     const myEmpId = employees.find((e) => e.profileId === currentUser.id || e.email === currentUser.email || e.name === currentUser.name)?.id;
@@ -73,7 +86,7 @@ export default function EmployeeLeaveView() {
             const approved = requests.filter(
                 (r) => r.status === "approved" && r.type === type && r.employeeId === myEmpId
             );
-            const usedDays = approved.reduce((sum, r) => sum + daysBetween(r.startDate, r.endDate), 0);
+            const usedDays = approved.reduce((sum, r) => sum + daysBetween(r.startDate, r.endDate, r.duration), 0);
             result[type] = { alloc: policyEntitlement, used: usedDays, remaining: Math.max(0, policyEntitlement - usedDays) };
         }
         return result;
@@ -92,11 +105,16 @@ export default function EmployeeLeaveView() {
             return;
         }
         if (formEnd < formStart) { toast.error("End date cannot be before start date"); return; }
+        // Half-day only valid for single-day requests
+        if ((formDuration === "half_day_am" || formDuration === "half_day_pm") && formStart !== formEnd) {
+            toast.error("Half-day leave is only available for single-day requests.");
+            return;
+        }
         const empId = myEmpId || "EMP001";
-        addRequest({ employeeId: empId, type: formType, startDate: formStart, endDate: formEnd, reason: formReason });
+        addRequest({ employeeId: empId, type: formType, startDate: formStart, endDate: formEnd, duration: formDuration, reason: formReason });
         toast.success("Leave request submitted!");
         setOpen(false);
-        setFormStart(""); setFormEnd(""); setFormReason("");
+        setFormStart(""); setFormEnd(""); setFormReason(""); setFormDuration("full_day");
     };
 
     return (
@@ -134,6 +152,20 @@ export default function EmployeeLeaveView() {
                                     <label className="text-sm font-medium">End Date</label>
                                     <Input type="date" value={formEnd} onChange={(e) => setFormEnd(e.target.value)} className="mt-1" />
                                 </div>
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium">Duration</label>
+                                <Select value={formDuration} onValueChange={(v) => setFormDuration(v as LeaveDuration)}>
+                                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="full_day">Full Day</SelectItem>
+                                        <SelectItem value="half_day_am" disabled={formStart !== formEnd}>Half Day (Morning)</SelectItem>
+                                        <SelectItem value="half_day_pm" disabled={formStart !== formEnd}>Half Day (Afternoon)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                {formStart && formEnd && formStart === formEnd && (
+                                    <p className="text-xs text-muted-foreground mt-1">Half-day available for single-day leave</p>
+                                )}
                             </div>
                             <div>
                                 <label className="text-sm font-medium">Reason</label>
@@ -194,6 +226,7 @@ export default function EmployeeLeaveView() {
                                     <TableHead className="text-xs">Type</TableHead>
                                     <TableHead className="text-xs">From</TableHead>
                                     <TableHead className="text-xs">To</TableHead>
+                                    <TableHead className="text-xs">Duration</TableHead>
                                     <TableHead className="text-xs">Days</TableHead>
                                     <TableHead className="text-xs">Reason</TableHead>
                                     <TableHead className="text-xs">Status</TableHead>
@@ -201,13 +234,14 @@ export default function EmployeeLeaveView() {
                             </TableHeader>
                             <TableBody>
                                 {filteredRequests.length === 0 ? (
-                                    <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">No leave requests yet</TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-8">No leave requests yet</TableCell></TableRow>
                                 ) : filteredRequests.map((req) => (
                                     <TableRow key={req.id}>
                                         <TableCell><Badge variant="outline" className="text-[10px]">{req.type}</Badge></TableCell>
                                         <TableCell className="text-sm">{req.startDate}</TableCell>
                                         <TableCell className="text-sm">{req.endDate}</TableCell>
-                                        <TableCell className="text-sm text-muted-foreground">{daysBetween(req.startDate, req.endDate)}</TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">{DURATION_LABELS[req.duration] || "Full Day"}</TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">{daysBetween(req.startDate, req.endDate, req.duration)}</TableCell>
                                         <TableCell className="text-sm max-w-[200px] truncate">{req.reason}</TableCell>
                                         <TableCell>
                                             <Badge variant="secondary" className={`text-[10px] ${leaveStatusColors[req.status]}`}>

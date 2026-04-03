@@ -175,22 +175,24 @@ const HR_PERMS: Permission[] = [
 ];
 
 const FINANCE_PERMS: Permission[] = [
-    "page:dashboard", "page:payroll", "page:loans", "page:reports", "page:employees", "page:settings",
+    "page:dashboard", "page:payroll", "page:loans", "page:reports", "page:employees", "page:settings", "page:messages",
     "employees:view", "employees:view_salary", "employees:approve_salary",
     "payroll:view_all", "payroll:generate", "payroll:lock", "payroll:issue",
     "loans:view_all", "loans:approve",
     "reports:view", "reports:government",
     "settings:organization",
+    "messages:send_announcement",
 ];
 
 const PAYROLL_ADMIN_PERMS: Permission[] = [
-    "page:dashboard", "page:payroll", "page:loans", "page:reports", "page:timesheets", "page:settings",
+    "page:dashboard", "page:payroll", "page:loans", "page:reports", "page:timesheets", "page:settings", "page:messages",
     "employees:view", "employees:view_salary",
     "payroll:view_all", "payroll:generate", "payroll:lock", "payroll:issue",
     "loans:view_all",
     "reports:view", "reports:government",
     "timesheets:view_all",
     "settings:organization",
+    "messages:send_announcement",
 ];
 
 const SUPERVISOR_PERMS: Permission[] = [
@@ -230,12 +232,15 @@ const ADMIN_DASHBOARD: WidgetConfig[] = [
     defaultWidget("kpi_absent_today", 2),
     defaultWidget("kpi_on_leave", 3),
     defaultWidget("kpi_pending_leaves", 4),
-    defaultWidget("kpi_outstanding_loans", 5),
-    defaultWidget("chart_team_performance", 6, 2),
-    defaultWidget("chart_dept_distribution", 7, 2),
-    defaultWidget("table_employee_status", 8, 4),
-    defaultWidget("events_widget", 9, 2),
-    defaultWidget("birthdays_widget", 10, 2),
+    defaultWidget("kpi_pending_ot", 5),
+    defaultWidget("kpi_outstanding_loans", 6),
+    defaultWidget("kpi_pending_adjustments", 7),
+    defaultWidget("chart_team_performance", 8, 2),
+    defaultWidget("chart_dept_distribution", 9, 2),
+    defaultWidget("table_employee_status", 10, 4),
+    defaultWidget("events_widget", 11, 2),
+    defaultWidget("birthdays_widget", 12, 2),
+    defaultWidget("table_recent_audit", 13, 4),
 ];
 
 const SUPERVISOR_DASHBOARD: WidgetConfig[] = [
@@ -520,7 +525,7 @@ export const useRolesStore = create<RolesState>()(
             resetToDefaults: () => set({ roles: buildSystemRoles() }),
         }),
         {
-            name: "nexhrms-roles",
+            name: "soren-roles",
             version: 1,
         }
     )

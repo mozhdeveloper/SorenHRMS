@@ -38,14 +38,14 @@ const DEMO_PASSWORD = "demo1234";
 
 // ─── Auth + Profile accounts ─────────────────────────────────────────────────
 const DEMO_ACCOUNTS = [
-  { name: "Alex Rivera",  email: "admin@nexhrms.com",      role: "admin",         department: "Management" },
-  { name: "Jordan Lee",   email: "hr@nexhrms.com",         role: "hr",            department: "Human Resources" },
-  { name: "Morgan Chen",  email: "finance@nexhrms.com",    role: "finance",       department: "Finance" },
-  { name: "Sam Torres",   email: "employee@nexhrms.com",   role: "employee",      department: "Engineering" },
-  { name: "Pat Reyes",    email: "supervisor@nexhrms.com", role: "supervisor",    department: "Engineering" },
-  { name: "Dana Cruz",    email: "payroll@nexhrms.com",    role: "payroll_admin", department: "Finance" },
-  { name: "Rene Santos",  email: "auditor@nexhrms.com",    role: "auditor",       department: "Compliance" },
-  { name: "Jamie Reyes",  email: "qr@nexhrms.com",         role: "employee",      department: "Engineering" },
+  { name: "Alex Rivera",  email: "admin@sdsi.com",      role: "admin",         department: "Management" },
+  { name: "Jordan Lee",   email: "hr@sdsi.com",         role: "hr",            department: "Human Resources" },
+  { name: "Morgan Chen",  email: "finance@sdsi.com",    role: "finance",       department: "Finance" },
+  { name: "Sam Torres",   email: "employee@sdsi.com",   role: "employee",      department: "Engineering" },
+  { name: "Pat Reyes",    email: "supervisor@sdsi.com", role: "supervisor",    department: "Engineering" },
+  { name: "Dana Cruz",    email: "payroll@sdsi.com",    role: "payroll_admin", department: "Finance" },
+  { name: "Rene Santos",  email: "auditor@sdsi.com",    role: "auditor",       department: "Compliance" },
+  { name: "Jamie Reyes",  email: "qr@sdsi.com",         role: "employee",      department: "Engineering" },
 ];
 
 // ─── employees table records for accounts that are role="employee" ────────────
@@ -56,10 +56,10 @@ const DEMO_EMPLOYEE_RECORDS: Record<string, {
   productivity: number; location: string; phone: string; birthday: string;
   pin: string; status: string;
 }> = {
-  "employee@nexhrms.com": {
+  "employee@sdsi.com": {
     id: "EMP026",
     name: "Sam Torres",
-    email: "employee@nexhrms.com",
+    email: "employee@sdsi.com",
     department: "Engineering",
     job_title: "Frontend Developer",
     work_type: "WFO",
@@ -72,10 +72,10 @@ const DEMO_EMPLOYEE_RECORDS: Record<string, {
     pin: "666666",
     status: "active",
   },
-  "qr@nexhrms.com": {
+  "qr@sdsi.com": {
     id: "EMP027",
     name: "Jamie Reyes",
-    email: "qr@nexhrms.com",
+    email: "qr@sdsi.com",
     department: "Engineering",
     job_title: "Field Technician",
     work_type: "WFO",

@@ -23,8 +23,10 @@ import { getInitials, formatCurrency } from "@/lib/format";
 import {
     Users, UserCheck, UserX, CalendarOff, TrendingUp, Calendar, Cake, Eye, Plus,
     Clock, Banknote, Pencil, Trash2, FileText, CheckCircle, Shield, Activity,
-    ClipboardList, CreditCard, LogIn,
+    ClipboardList, CreditCard, LogIn, ScanFace,
 } from "lucide-react";
+import { AttendanceLiveStats } from "@/components/attendance/attendance-live-stats";
+import { EnrollmentReminder } from "@/components/attendance/enrollment-reminder";
 import {
     ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid,
     Tooltip as RechartsTooltip, PieChart, Pie, Cell, Legend,
@@ -82,6 +84,9 @@ export const WIDGET_CATALOG: WidgetMeta[] = [
     { type: "events_widget", label: "Events (Editable)", description: "Upcoming events & meetings with CRUD", category: "general", defaultColSpan: 2, icon: Calendar },
     { type: "events_widget_readonly", label: "Events (Read Only)", description: "Upcoming events & meetings", category: "general", defaultColSpan: 2, icon: Calendar },
     { type: "birthdays_widget", label: "Birthdays", description: "Employee birthdays this month", category: "general", defaultColSpan: 2, icon: Cake },
+    // Attendance
+    { type: "attendance_live_stats", label: "Live Attendance Stats", description: "Real-time attendance overview with present/absent/late counts", category: "general", defaultColSpan: 2, icon: Activity },
+    { type: "enrollment_reminder", label: "Face Enrollment Status", description: "Shows employees pending face recognition enrollment", category: "general", defaultColSpan: 2, icon: ScanFace },
 ];
 
 export function getWidgetMeta(type: WidgetType): WidgetMeta | undefined {
@@ -103,15 +108,15 @@ function WidgetSkeleton() {
 // ─── KPI Card wrapper ────────────────────────────────────────
 function KpiCard({ label, value, icon: Icon, color, bg }: { label: string; value: string | number; icon: React.ElementType; color: string; bg: string }) {
     return (
-        <Card className="border border-border/50 hover:shadow-md transition-shadow h-full">
-            <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <p className="text-sm text-muted-foreground">{label}</p>
-                        <p className="text-3xl font-bold mt-1">{value}</p>
+        <Card className="border border-border/40 shadow-sm hover:shadow-md transition-all duration-200 h-full bg-card/60 backdrop-blur-sm">
+            <CardContent className="p-6">
+                <div className="flex items-start justify-between">
+                    <div className="space-y-2">
+                        <p className="text-sm font-medium text-muted-foreground/80 tracking-tight">{label}</p>
+                        <p className="text-3xl font-bold tracking-tighter">{value}</p>
                     </div>
-                    <div className={`p-3 rounded-xl ${bg}`}>
-                        <Icon className={`h-6 w-6 ${color}`} />
+                    <div className={`p-3 rounded-2xl ${bg} shadow-inner`}>
+                        <Icon className={`h-[22px] w-[22px] ${color}`} strokeWidth={2.5} />
                     </div>
                 </div>
             </CardContent>
@@ -234,11 +239,13 @@ function ChartTeamPerformance() {
     }, [employees, selectedDept]);
 
     return (
-        <Card className="border border-border/50 h-full">
+        <Card className="border border-border/40 shadow-sm sm:rounded-2xl rounded-xl h-full bg-card/60 backdrop-blur-sm">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div className="flex items-center gap-2">
-                    <TrendingUp className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-base font-semibold">Team Performance</CardTitle>
+                    <div className="p-2 rounded-lg bg-primary/10">
+                        <TrendingUp className="h-4 w-4 text-primary" strokeWidth={2.5} />
+                    </div>
+                    <CardTitle className="text-base font-semibold tracking-tight">Team Performance</CardTitle>
                 </div>
                 <Select value={selectedDept} onValueChange={setSelectedDept}>
                     <SelectTrigger className="w-[120px] sm:w-[160px] h-8 text-xs"><SelectValue /></SelectTrigger>
@@ -273,11 +280,13 @@ function ChartDeptDistribution() {
     }, [employees]);
 
     return (
-        <Card className="border border-border/50 h-full">
+        <Card className="border border-border/40 shadow-sm sm:rounded-2xl rounded-xl h-full bg-card/60 backdrop-blur-sm">
             <CardHeader className="pb-2">
                 <div className="flex items-center gap-2">
-                    <Users className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-base font-semibold">Employees by Department</CardTitle>
+                    <div className="p-2 rounded-lg bg-blue-500/10">
+                        <Users className="h-4 w-4 text-blue-500" strokeWidth={2.5} />
+                    </div>
+                    <CardTitle className="text-base font-semibold tracking-tight">Employees by Department</CardTitle>
                 </div>
             </CardHeader>
             <CardContent className="pt-0">
@@ -320,10 +329,15 @@ function TableEmployeeStatus() {
     };
 
     return (
-        <Card className="border border-border/50">
+        <Card className="border border-border/40 shadow-sm sm:rounded-2xl rounded-xl bg-card/60 backdrop-blur-sm overflow-hidden">
             <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                    <CardTitle className="text-base font-semibold">Employee Status Today</CardTitle>
+                    <div className="flex items-center gap-2">
+                        <div className="p-2 rounded-lg bg-emerald-500/10">
+                            <Users className="h-4 w-4 text-emerald-500" strokeWidth={2.5} />
+                        </div>
+                        <CardTitle className="text-base font-semibold tracking-tight">Employee Status Today</CardTitle>
+                    </div>
                     <Link href={rh("/employees/manage")}><Button variant="ghost" size="sm" className="text-xs">View All</Button></Link>
                 </div>
             </CardHeader>
@@ -389,12 +403,14 @@ function TableRecentAudit() {
     };
 
     return (
-        <Card className="border border-border/50">
+        <Card className="border border-border/40 shadow-sm sm:rounded-2xl rounded-xl bg-card/60 backdrop-blur-sm overflow-hidden">
             <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <Activity className="h-5 w-5 text-muted-foreground" />
-                        <CardTitle className="text-base font-semibold">Recent Audit Activity</CardTitle>
+                        <div className="p-2 rounded-lg bg-orange-500/10">
+                            <Activity className="h-4 w-4 text-orange-500" strokeWidth={2.5} />
+                        </div>
+                        <CardTitle className="text-base font-semibold tracking-tight">Recent Audit Activity</CardTitle>
                     </div>
                     <Link href={rh("/audit")}><Button variant="ghost" size="sm" className="text-xs">View All</Button></Link>
                 </div>
@@ -693,12 +709,14 @@ function EventsWidgetComponent({ readOnly = false }: { readOnly?: boolean }) {
     };
 
     return (
-        <Card className="border border-border/50 h-full">
+        <Card className="border border-border/40 shadow-sm sm:rounded-2xl rounded-xl bg-card/60 backdrop-blur-sm overflow-hidden flex flex-col h-full">
             <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <Calendar className="h-5 w-5 text-muted-foreground" />
-                        <CardTitle className="text-base font-semibold">Events & Meetings</CardTitle>
+                        <div className="p-2 rounded-lg bg-violet-500/10">
+                            <Calendar className="h-4 w-4 text-violet-500" strokeWidth={2.5} />
+                        </div>
+                        <CardTitle className="text-base font-semibold tracking-tight">Events & Meetings</CardTitle>
                     </div>
                     {!readOnly && (
                         <Dialog open={open} onOpenChange={setOpen}>
@@ -791,12 +809,14 @@ function BirthdaysWidgetComponent() {
     }, [employees, month]);
 
     return (
-        <Card className="border border-border/50 h-full">
+        <Card className="border border-border/40 shadow-sm sm:rounded-2xl rounded-xl h-full bg-card/60 backdrop-blur-sm overflow-hidden flex flex-col">
             <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <Cake className="h-5 w-5 text-muted-foreground" />
-                        <CardTitle className="text-base font-semibold">Birthdays</CardTitle>
+                        <div className="p-2 rounded-lg bg-blue-500/10">
+                            <Cake className="h-4 w-4 text-blue-500" strokeWidth={2.5} />
+                        </div>
+                        <CardTitle className="text-base font-semibold tracking-tight">Birthdays</CardTitle>
                     </div>
                     <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
                         <SelectTrigger className="w-[100px] h-8 text-xs"><SelectValue /></SelectTrigger>
@@ -864,6 +884,8 @@ const WIDGET_COMPONENT_MAP: Record<WidgetType, React.ComponentType> = {
     events_widget: EventsWidgetEditable,
     events_widget_readonly: EventsWidgetReadOnly,
     birthdays_widget: BirthdaysWidgetComponent,
+    attendance_live_stats: AttendanceLiveStats,
+    enrollment_reminder: () => <EnrollmentReminder adminView compact />,
 };
 
 /**

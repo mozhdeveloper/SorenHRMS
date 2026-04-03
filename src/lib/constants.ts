@@ -34,6 +34,16 @@ export const LOCATIONS = [
     "Tokyo",
 ] as const;
 
+// ─── GPS & Attendance Thresholds ─────────────────────────────────────────────
+export const GPS_CONFIG = {
+    /** Maximum acceptable GPS accuracy in meters (reject if locationAccuracyMeters > this) */
+    MAX_ACCURACY_METERS: 30,
+    /** Default geofence radius in meters */
+    DEFAULT_GEOFENCE_RADIUS: 100,
+    /** Location timestamp max age in seconds (reject stale readings) */
+    MAX_LOCATION_AGE_SECONDS: 20,
+} as const;
+
 // ─── PH Holiday Pay Multipliers (DOLE) ───────────────────────────────────────
 export const PH_HOLIDAY_MULTIPLIERS = {
     regular_holiday: {

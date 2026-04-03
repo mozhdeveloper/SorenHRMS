@@ -2,8 +2,36 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
-import type { LeaveRequest, LeaveStatus, LeavePolicy, LeaveBalance, LeaveType } from "@/types";
+import type { LeaveRequest, LeaveStatus, LeavePolicy, LeaveBalance, LeaveType, LeaveDuration } from "@/types";
 import { SEED_LEAVES } from "@/data/seed";
+
+/**
+ * Calculate the number of leave days based on date range and duration type.
+ * Half-day leaves count as 0.5 days. Hourly leaves count based on hours/8.
+ */
+function calculateLeaveDays(
+    startDate: string,
+    endDate: string,
+    duration: LeaveDuration = "full_day",
+    hours?: number
+): number {
+    const startD = new Date(startDate);
+    const endD = new Date(endDate);
+    const fullDays = Math.ceil((endD.getTime() - startD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    
+    switch (duration) {
+        case "half_day_am":
+        case "half_day_pm":
+            // Half-day only applies if it's a single-day request
+            return fullDays === 1 ? 0.5 : fullDays;
+        case "hourly":
+            // Convert hours to days (8 hours = 1 day)
+            return hours ? Math.round((hours / 8) * 10) / 10 : fullDays;
+        case "full_day":
+        default:
+            return fullDays;
+    }
+}
 
 // ─── Default PH Leave Policies ───────────────────────────────
 const DEFAULT_LEAVE_POLICIES: LeavePolicy[] = [
@@ -94,9 +122,7 @@ export const useLeaveStore = create<LeaveState>()(
                 const bal = get().balances.find(
                     (b) => b.employeeId === req.employeeId && b.leaveType === req.type && b.year === year
                 );
-                const startD = new Date(req.startDate);
-                const endD = new Date(req.endDate);
-                const days = Math.ceil((endD.getTime() - startD.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                const days = calculateLeaveDays(req.startDate, req.endDate, req.duration, req.hours);
 
                 if (bal && bal.remaining < days && !(policy?.negativeLeaveAllowed)) {
                     // Insufficient balance — still create but it will be noted
@@ -107,6 +133,7 @@ export const useLeaveStore = create<LeaveState>()(
                         ...s.requests,
                         {
                             ...req,
+                            duration: req.duration || "full_day", // Default to full_day for backward compatibility
                             id: `LV-${nanoid(8)}`,
                             status: "pending",
                         },
@@ -125,7 +152,7 @@ export const useLeaveStore = create<LeaveState>()(
                     );
 
                     const year = new Date(req.startDate).getFullYear();
-                    const days = Math.ceil((new Date(req.endDate).getTime() - new Date(req.startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                    const days = calculateLeaveDays(req.startDate, req.endDate, req.duration, req.hours);
 
                     // If approving, deduct from balance
                     if (status === "approved" && req.status !== "approved") {
@@ -236,7 +263,7 @@ export const useLeaveStore = create<LeaveState>()(
             resetToSeed: () => set({ requests: SEED_LEAVES, balances: [] }),
         }),
         {
-            name: "nexhrms-leave",
+            name: "soren-leave",
             version: 3,
             migrate: () => ({ requests: SEED_LEAVES, balances: [] }),
         }

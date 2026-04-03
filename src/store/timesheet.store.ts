@@ -241,6 +241,6 @@ export const useTimesheetStore = create<TimesheetState>()(
                 get().timesheets.filter((t) => t.status === "submitted"),
             resetToSeed: () => set({ timesheets: [] }),
         }),
-        { name: "nexhrms-timesheet", version: 1 }
+        { name: "soren-timesheet", version: 1 }
     )
 );

@@ -290,7 +290,7 @@ const INITIAL_STATE = {
   fontFamily: "geist" as FontFamilyId,
   radius: "md" as RadiusId,
   density: "default" as DensityId,
-  companyName: "NexHRMS",
+  companyName: "Soren Data Solutions Inc.",
   logoUrl: "",
   logoTextVisible: true,
   faviconUrl: "",
@@ -306,7 +306,7 @@ const INITIAL_STATE = {
   loginBackground: "gradient" as LoginBackground,
   loginBgColor: "",
   loginCardStyle: "centered" as LoginCardStyle,
-  loginHeading: "NexHRMS",
+  loginHeading: "Soren Data Solutions Inc.",
   loginSubheading: "Sign in to your account to continue",
 };
 
@@ -359,7 +359,7 @@ export const useAppearanceStore = create<AppearanceState>()(
       resetAppearance: () => set(INITIAL_STATE),
     }),
     {
-      name: "nexhrms-appearance",
+      name: "soren-appearance",
       version: 2,
       migrate: (persisted, version) => {
         const state = persisted as Record<string, unknown>;

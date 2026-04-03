@@ -452,7 +452,7 @@ export const usePayrollStore = create<PayrollState>()(
                 })),
         }),
         {
-            name: "nexhrms-payroll",
+            name: "soren-payroll",
             version: 6,
             migrate: () => ({
                 payslips: SEED_PAYSLIPS,

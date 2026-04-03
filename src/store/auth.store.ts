@@ -188,7 +188,7 @@ export const useAuthStore = create<AuthState>()(
             },
         }),
         {
-            name: "nexhrms-auth",
+            name: "soren-auth",
             version: 4,
             migrate: (persisted: unknown, version: number) => {
                 const state = persisted as Record<string, unknown>;

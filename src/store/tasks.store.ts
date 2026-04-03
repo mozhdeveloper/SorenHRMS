@@ -322,6 +322,6 @@ export const useTasksStore = create<TasksState>()(
                     taskTags: [],
                 }),
         }),
-        { name: "nexhrms-tasks", version: 1 }
+        { name: "soren-tasks", version: 1 }
     )
 );

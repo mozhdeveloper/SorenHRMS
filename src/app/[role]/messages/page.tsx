@@ -13,6 +13,8 @@ export default function MessagesPage() {
                 admin: AdminMessagesView,
                 hr: AdminMessagesView,
                 supervisor: AdminMessagesView,
+                finance: AdminMessagesView,
+                payroll_admin: AdminMessagesView,
                 employee: EmployeeMessagesView,
             }}
         />

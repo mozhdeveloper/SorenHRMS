@@ -521,7 +521,7 @@ export const useAttendanceStore = create<AttendanceState>()(
                 })),
         }),
         {
-            name: "nexhrms-attendance",
+            name: "soren-attendance",
             version: 5,
             migrate: (persistedState: unknown, version: number) => {
                 const state = (persistedState ?? {}) as Record<string, unknown>;

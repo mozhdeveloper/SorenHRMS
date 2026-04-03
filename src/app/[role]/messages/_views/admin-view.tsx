@@ -52,6 +52,21 @@ export default function AdminMessagesView() {
     const { groups, tasks } = useTasksStore();
     const employees = useEmployeesStore((s) => s.employees);
     const currentUser = useAuthStore((s) => s.currentUser);
+    const accounts = useAuthStore((s) => s.accounts);
+
+    // Resolve the EMP-prefixed employee ID for the current auth user.
+    // Seed channels use EMP IDs; auth accounts use U-prefixed IDs.
+    const effectiveId = useMemo(() => {
+        const emp = employees.find(
+            (e) => e.profileId === currentUser.id || e.email === currentUser.email
+        );
+        return emp?.id ?? currentUser.id;
+    }, [employees, currentUser.id, currentUser.email]);
+
+    const getEmpName = (id: string) =>
+        employees.find((e) => e.id === id)?.name ||
+        accounts.find((a) => a.id === id)?.name ||
+        id;
 
     // ── Channel chat state ───────────────────────────────────
     const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
@@ -68,11 +83,11 @@ export default function AdminMessagesView() {
     useEffect(() => {
         if (!selectedChannelId) return;
         channelMsgs.forEach((m) => {
-            if (m.employeeId !== currentUser.id && !m.readBy.includes(currentUser.id)) {
-                markMessageRead(m.id, currentUser.id);
+            if (m.employeeId !== effectiveId && !m.readBy.includes(effectiveId)) {
+                markMessageRead(m.id, effectiveId);
             }
         });
-    }, [selectedChannelId, channelMsgs, currentUser.id, markMessageRead]);
+    }, [selectedChannelId, channelMsgs, effectiveId, markMessageRead]);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -80,7 +95,7 @@ export default function AdminMessagesView() {
 
     const handleSendChat = () => {
         if (!chatMessage.trim() || !selectedChannelId) return;
-        sendMessage({ channelId: selectedChannelId, employeeId: currentUser.id, message: chatMessage.trim() });
+        sendMessage({ channelId: selectedChannelId, employeeId: effectiveId, message: chatMessage.trim() });
         setChatMessage("");
     };
 
@@ -94,7 +109,7 @@ export default function AdminMessagesView() {
         createChannel({
             name: chName.startsWith("#") ? chName : `#${chName}`,
             memberEmployeeIds: chMembers,
-            createdBy: currentUser.id,
+            createdBy: effectiveId,
         });
         toast.success(`Channel "${chName}" created`);
         setChName(""); setChMembers([]); setChannelOpen(false);
@@ -118,7 +133,7 @@ export default function AdminMessagesView() {
             body: annBody,
             channel: annChannel,
             scope: annScope,
-            sentBy: currentUser.id,
+            sentBy: effectiveId,
             targetGroupId: annScope === "task_group" ? annGroupId : undefined,
             targetTaskId: annScope === "task_assignees" ? annTaskId : undefined,
             targetEmployeeIds: annScope === "selected_employees" ? annEmpIds : undefined,
@@ -128,8 +143,6 @@ export default function AdminMessagesView() {
         setAnnGroupId(""); setAnnTaskId(""); setAnnEmpIds([]);
         setAnnOpen(false);
     };
-
-    const getEmpName = (id: string) => employees.find((e) => e.id === id)?.name || id;
 
     return (
         <div className="space-y-6">
@@ -277,7 +290,7 @@ export default function AdminMessagesView() {
                                 <ScrollArea className="h-[600px]">
                                     <div className="p-2 space-y-0.5">
                                         {channels.filter((c) => !c.isArchived).map((ch) => {
-                                            const unread = getUnreadCount(ch.id, currentUser.id);
+                                            const unread = getUnreadCount(ch.id, effectiveId);
                                             return (
                                                 <button
                                                     key={ch.id}
@@ -323,7 +336,7 @@ export default function AdminMessagesView() {
                                         <ScrollArea className="flex-1 p-4">
                                             <div className="space-y-3">
                                                 {channelMsgs.map((msg) => {
-                                                    const isMine = msg.employeeId === currentUser.id;
+                                                    const isMine = msg.employeeId === effectiveId;
                                                     return (
                                                         <div key={msg.id} className={`flex gap-2.5 ${isMine ? "flex-row-reverse" : ""}`}>
                                                             <Avatar className="h-7 w-7 shrink-0">

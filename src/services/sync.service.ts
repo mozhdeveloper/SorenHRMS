@@ -589,34 +589,50 @@ export function startWriteThrough(): void {
   _subscriptions.push(
     useMessagingStore.subscribe(
       (state, prevState) => {
-        // Announcements
-        for (const ann of state.announcements) {
-          const prev = prevState.announcements.find((a) => a.id === ann.id);
-          if (!prev || JSON.stringify(prev) !== JSON.stringify(ann)) {
-            messagingDb.upsertAnnouncement(ann);
+        // Use an async IIFE so channels are fully committed to Supabase before
+        // any message insert runs. This prevents the FK constraint violation
+        // (channel_messages_channel_id_fkey) that occurs when a seed-only channel
+        // has never been persisted to Supabase and a user sends their first message.
+        (async () => {
+          // Announcements (no FK dependency, can run in parallel)
+          const announcementOps = state.announcements
+            .filter((ann) => {
+              const prev = prevState.announcements.find((a) => a.id === ann.id);
+              return !prev || JSON.stringify(prev) !== JSON.stringify(ann);
+            })
+            .map((ann) => messagingDb.upsertAnnouncement(ann));
+
+          // Channels — await all upserts before touching messages
+          for (const ch of state.channels) {
+            const prev = prevState.channels.find((c) => c.id === ch.id);
+            if (!prev || JSON.stringify(prev) !== JSON.stringify(ch)) {
+              await messagingDb.upsertChannel(ch);
+            }
           }
-        }
-        // Channels
-        for (const ch of state.channels) {
-          const prev = prevState.channels.find((c) => c.id === ch.id);
-          if (!prev || JSON.stringify(prev) !== JSON.stringify(ch)) {
-            messagingDb.upsertChannel(ch);
+          for (const prev of prevState.channels) {
+            if (!state.channels.find((c) => c.id === prev.id)) {
+              messagingDb.deleteChannel(prev.id);
+            }
           }
-        }
-        for (const prev of prevState.channels) {
-          if (!state.channels.find((c) => c.id === prev.id)) {
-            messagingDb.deleteChannel(prev.id);
+
+          // Messages — for each new message, guarantee its parent channel exists
+          // in Supabase first (handles seed-only channels that were never synced)
+          for (const msg of state.messages) {
+            const prev = prevState.messages.find((m) => m.id === msg.id);
+            if (!prev) {
+              // Ensure the parent channel is persisted before the message
+              const parentChannel = state.channels.find((c) => c.id === msg.channelId);
+              if (parentChannel) {
+                await messagingDb.upsertChannel(parentChannel);
+              }
+              await messagingDb.insertMessage(msg);
+            } else if (JSON.stringify(prev) !== JSON.stringify(msg)) {
+              await messagingDb.upsertMessage(msg);
+            }
           }
-        }
-        // Messages (append-only typically, but support updates for readBy)
-        for (const msg of state.messages) {
-          const prev = prevState.messages.find((m) => m.id === msg.id);
-          if (!prev) {
-            messagingDb.insertMessage(msg);
-          } else if (JSON.stringify(prev) !== JSON.stringify(msg)) {
-            messagingDb.upsertMessage(msg);
-          }
-        }
+
+          await Promise.all(announcementOps);
+        })();
       }
     )
   );
@@ -791,7 +807,7 @@ export function startRealtime(): void {
 
   const supabase = createClient();
   const channel = supabase
-    .channel("nexhrms-realtime")
+    .channel("soren-realtime")
     // ── attendance_logs ──────────────────────────────────────
     .on(
       "postgres_changes",

@@ -185,7 +185,7 @@ export const useEmployeesStore = create<EmployeesState>()(
                 }),
         }),
         {
-            name: "nexhrms-employees",
+            name: "soren-employees",
             version: 5,
             migrate: () => ({
                 employees: SEED_EMPLOYEES,

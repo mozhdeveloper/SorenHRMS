@@ -145,7 +145,7 @@ export default function AdminLeaveView() {
             return;
         }
         if (formEnd < formStart) { toast.error("End date cannot be before start date"); return; }
-        addRequest({ employeeId: formEmpId, type: formType, startDate: formStart, endDate: formEnd, reason: formReason });
+        addRequest({ employeeId: formEmpId, type: formType, startDate: formStart, endDate: formEnd, reason: formReason, duration: "full_day" });
         toast.success("Leave request submitted!");
         setOpen(false);
         setFormStart(""); setFormEnd(""); setFormReason(""); setFormEmpId("");

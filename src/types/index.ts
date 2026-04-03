@@ -343,12 +343,19 @@ export interface LeaveRequest {
   type: LeaveType;
   startDate: string;
   endDate: string;
+  /** Leave duration type: full day, half day (AM/PM), or hourly */
+  duration: LeaveDuration;
+  /** Number of hours for hourly leave (only used when duration = "hourly") */
+  hours?: number;
   reason: string;
   status: LeaveStatus;
   reviewedBy?: string;
   reviewedAt?: string;
   attachmentUrl?: string;
 }
+
+/** Leave duration options for half-day support */
+export type LeaveDuration = "full_day" | "half_day_am" | "half_day_pm" | "hourly";
 
 export interface LoanDeduction {
   id: string;
@@ -716,7 +723,9 @@ export type WidgetType =
   // Personal
   | "my_attendance_status" | "my_leave_balance" | "my_latest_payslip" | "my_leave_requests"
   // General
-  | "events_widget" | "events_widget_readonly" | "birthdays_widget";
+  | "events_widget" | "events_widget_readonly" | "birthdays_widget"
+  // Attendance
+  | "attendance_live_stats" | "enrollment_reminder";
 
 export interface CustomPage {
   id: string;
@@ -916,6 +925,13 @@ export interface ChannelMessage {
   editedAt?: string;
   readBy: string[];
 }
+
+// ─── Service Layer Types ─────────────────────────────────────
+
+/** Standard result type for server actions */
+export type ServiceResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
 
 // ─── Kiosk Face Recognition & Enhanced Attendance ────────────────────────────
 
