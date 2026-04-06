@@ -22,9 +22,12 @@ import {
 } from "lucide-react";
 
 /**
- * Kiosk Landing Page with PIN Protection + Method Selection
+ * Kiosk Landing Page with ADMIN PIN Protection + Method Selection
  * 
- * Flow: PIN entry → method selection (Face / QR) → navigate to chosen kiosk.
+ * The PIN (default: 000000) is for ADMINISTRATORS to unlock/access kiosk mode.
+ * Employees do NOT use this PIN — they authenticate via QR code or Face recognition.
+ * 
+ * Flow: Admin enters PIN → kiosk unlocks → method selection (Face / QR) → employees scan to check-in/out.
  * If only one method is enabled, auto-redirects after PIN verification.
  */
 

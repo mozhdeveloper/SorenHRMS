@@ -56,7 +56,7 @@ export interface KioskSettings {
 
   // ── Security ──
   requireGeofence: boolean;
-  adminPin: string; // PIN to exit kiosk mode
+  adminPin: string; // ADMIN-only PIN to unlock kiosk mode (default: 000000). Employees use QR/Face instead.
 
   // ── Selfie / Photo ──
   selfieEnabled: boolean;
