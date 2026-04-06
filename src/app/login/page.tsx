@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth.store";
 import { useAppearanceStore } from "@/store/appearance.store";
 import { signIn } from "@/services/auth.service";
-import { hydrateAllStores, startWriteThrough } from "@/services/sync.service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,17 +66,15 @@ export default function LoginPage() {
                     emergencyContact: result.user.emergencyContact,
                 });
                 useAuthStore.setState({ isAuthenticated: true });
-                // Sync: hydrate all stores from Supabase and start write-through
-                await hydrateAllStores();
-                startWriteThrough();
+                // Redirect immediately — client-layout will handle store hydration
                 toast.success("Welcome back!");
                 router.push(`/${result.user.role}/dashboard`);
             } else {
                 toast.error(result.error || "Invalid email or password");
+                setLoading(false);
             }
         } catch {
             toast.error("Connection error. Please try again.");
-        } finally {
             setLoading(false);
         }
     };

@@ -345,12 +345,13 @@ export function Sidebar() {
                 <>
                     {/* Backdrop */}
                     <div
-                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm lg:hidden"
+                        className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm lg:hidden"
                         onClick={() => setMobileSidebarOpen(false)}
+                        aria-hidden="true"
                     />
-                    {/* Drawer */}
+                    {/* Drawer — must be higher z-index than backdrop */}
                     <aside className={cn(
-                        "fixed left-0 top-0 z-50 flex h-screen w-72 max-w-[85vw] flex-col border-r border-border bg-card shadow-xl lg:hidden animate-in slide-in-from-left duration-200",
+                        "fixed left-0 top-0 z-[70] flex h-screen w-72 max-w-[85vw] flex-col border-r border-border bg-card shadow-xl lg:hidden animate-in slide-in-from-left duration-200 touch-pan-y",
                         sidebarVariant === "colored" && "sidebar-colored bg-primary text-primary-foreground border-primary/20"
                     )}>
                         {navContent(true, true)}

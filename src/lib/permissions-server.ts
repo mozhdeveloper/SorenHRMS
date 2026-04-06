@@ -16,30 +16,38 @@ const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     hr: [
         "page:dashboard", "page:employees", "page:leave", "page:attendance", "page:reports",
         "page:timesheets", "page:projects", "page:tasks", "page:notifications", "page:settings",
+        "page:messages",
         "employees:view", "employees:create", "employees:edit", "employees:delete",
         "attendance:view_all", "attendance:edit", "leave:view_all", "leave:approve",
         "timesheets:view_all", "timesheets:approve", "reports:view",
     ],
     finance: [
-        "page:dashboard", "page:payroll", "page:loans", "page:reports",
+        "page:dashboard", "page:payroll", "page:loans", "page:reports", "page:employees",
+        "page:settings", "page:messages",
         "payroll:view_all", "payroll:generate", "loans:view_all", "loans:approve", "reports:view",
+        "employees:view",
     ],
     payroll_admin: [
         "page:dashboard", "page:payroll", "page:loans", "page:reports", "page:employees",
+        "page:timesheets", "page:settings", "page:messages",
         "payroll:view_all", "payroll:generate", "payroll:lock", "payroll:issue",
         "loans:view_all", "loans:approve", "employees:view", "reports:view",
+        "timesheets:view_all",
     ],
     supervisor: [
-        "page:dashboard", "page:attendance", "page:leave", "page:timesheets", "page:projects", "page:tasks",
+        "page:dashboard", "page:employees", "page:attendance", "page:leave",
+        "page:timesheets", "page:projects", "page:tasks", "page:messages",
         "attendance:view_all", "leave:view_all", "leave:approve", "timesheets:view_all", "timesheets:approve",
         "projects:manage", "tasks:view", "tasks:create", "tasks:assign",
+        "employees:view",
     ],
     auditor: [
-        "page:dashboard", "page:audit", "page:reports",
-        "audit:view", "reports:view",
+        "page:dashboard", "page:audit", "page:reports", "page:employees", "page:loans",
+        "audit:view", "employees:view", "reports:view", "loans:view_all",
     ],
     employee: [
-        "page:dashboard", "page:leave", "page:timesheets", "page:tasks",
+        "page:dashboard", "page:attendance", "page:leave", "page:payroll",
+        "page:loans", "page:tasks", "page:messages",
         "payroll:view_own", "loans:view_own", "tasks:view",
     ],
 };
@@ -55,11 +63,11 @@ interface RouteRule {
 }
 
 const PROTECTED_ROUTES: RouteRule[] = [
-    // Payroll routes - restricted to payroll-related roles
-    { pattern: /^\/[^/]+\/payroll/, permissions: ["page:payroll"] },
+    // Payroll routes — any role with page:payroll OR payroll:view_own can access
+    { pattern: /^\/[^/]+\/payroll/, permissions: ["page:payroll", "payroll:view_own"], anyOf: true },
     
-    // Loans routes
-    { pattern: /^\/[^/]+\/loans/, permissions: ["page:loans"] },
+    // Loans routes — any role with page:loans OR loans:view_own can access
+    { pattern: /^\/[^/]+\/loans/, permissions: ["page:loans", "loans:view_own"], anyOf: true },
     
     // Audit routes
     { pattern: /^\/[^/]+\/audit/, permissions: ["page:audit"] },

@@ -835,8 +835,55 @@ export default function AdminEmployeesView() {
                         </CardContent>
                     </Card>
 
-                    {/* Table */}
-                    <Card className="border border-border/50">
+                    {/* Mobile Card View */}
+                    <div className="grid grid-cols-1 gap-3 md:hidden">
+                        {paginated.map((emp) => {
+                            const assignedProject = getProjectForEmployee(emp.id);
+                            return (
+                                <Card key={emp.id} className="border border-border/50">
+                                    <CardContent className="p-4">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="flex items-center gap-3">
+                                                <Avatar className="h-10 w-10">
+                                                    <AvatarFallback className="text-xs bg-muted">{getInitials(emp.name)}</AvatarFallback>
+                                                </Avatar>
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-semibold truncate">{emp.name}</p>
+                                                    <p className="text-xs text-muted-foreground truncate">{emp.email}</p>
+                                                </div>
+                                            </div>
+                                            <Badge variant="secondary" className={`shrink-0 text-[10px] ${emp.status === "active" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : emp.status === "resigned" ? "bg-orange-500/15 text-orange-700 dark:text-orange-400" : "bg-red-500/15 text-red-700 dark:text-red-400"}`}>
+                                                {emp.status}
+                                            </Badge>
+                                        </div>
+                                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                                            <div><span className="text-muted-foreground">Role:</span> <span className="font-medium">{emp.role}</span></div>
+                                            <div><span className="text-muted-foreground">Dept:</span> <span className="font-medium">{emp.department}</span></div>
+                                            <div><span className="text-muted-foreground">Type:</span> <Badge variant="outline" className="text-[10px] ml-1">{emp.workType}</Badge></div>
+                                            <div><span className="text-muted-foreground">Salary:</span> <span className="font-medium">{formatCurrency(emp.salary)}</span></div>
+                                            {assignedProject && <div className="col-span-2"><span className="text-muted-foreground">Project:</span> <Badge variant="outline" className="text-[10px] ml-1 bg-blue-500/10 text-blue-700 dark:text-blue-400">{assignedProject.name}</Badge></div>}
+                                        </div>
+                                        <div className="mt-3 pt-3 border-t flex items-center justify-between gap-2">
+                                            <Link href={rh(`/employees/${emp.id}`)} className="flex-1">
+                                                <Button variant="outline" size="sm" className="w-full h-8 text-xs gap-1.5">
+                                                    <Eye className="h-3.5 w-3.5" /> View
+                                                </Button>
+                                            </Link>
+                                            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" disabled={!canManage} onClick={() => handleOpenEdit(emp)}>
+                                                <Pencil className="h-3.5 w-3.5" /> Edit
+                                            </Button>
+                                            <Button variant={emp.status === "active" ? "destructive" : "default"} size="sm" className="h-8 text-xs" disabled={!canManage} onClick={() => { if (!canManage) return; toggleStatus(emp.id); toast.success(`${emp.name} ${emp.status === "active" ? "deactivated" : "activated"}`); }}>
+                                                {emp.status === "active" ? "Deactivate" : "Activate"}
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            );
+                        })}
+                    </div>
+
+                    {/* Desktop Table */}
+                    <Card className="border border-border/50 hidden md:block">
                         <CardContent className="p-0">
                             <div className="overflow-x-auto">
                                 <Table>

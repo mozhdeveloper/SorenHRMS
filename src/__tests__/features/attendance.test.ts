@@ -8,9 +8,8 @@
 import { renderHook, act } from "@testing-library/react";
 import { useAttendanceStore } from "@/store/attendance.store";
 
-// Mock Date for consistent testing
-const MOCK_DATE = new Date("2026-04-04T09:00:00.000Z");
-const TODAY = "2026-04-04";
+// Use current date for consistent testing
+const TODAY = new Date().toISOString().split("T")[0];
 
 describe("Attendance Store", () => {
     beforeEach(() => {
