@@ -207,7 +207,6 @@ describe("Employees Store", () => {
             const { result } = renderHook(() => useEmployeesStore());
 
             const existingEmp = result.current.employees[0];
-            const oldSalary = existingEmp.salary;
 
             act(() => {
                 result.current.proposeSalaryChange({

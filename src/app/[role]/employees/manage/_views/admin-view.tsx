@@ -100,7 +100,7 @@ export default function AdminEmployeesView() {
         setAccountsLoading(false);
     }, []);
 
-    useEffect(() => { refreshAccounts(); }, [refreshAccounts]);
+    useEffect(() => { void refreshAccounts(); }, [refreshAccounts]);
 
     const accounts = USE_DEMO_MODE ? demoAccounts : realAccounts;
 
@@ -433,7 +433,7 @@ export default function AdminEmployeesView() {
 
     const si = (col: SortKey) => <SortIndicator col={col} sortKey={sortKey} sortDir={sortDir} />;
 
-    const [addingEmployee, setAddingEmployee] = useState(false);
+    const [_addingEmployee, setAddingEmployee] = useState(false);
 
     const handleAddEmployee = async () => {
         if (!canManage) { toast.error("You don't have permission to add employees"); return; }

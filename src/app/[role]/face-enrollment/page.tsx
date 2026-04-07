@@ -120,7 +120,7 @@ export default function FaceEnrollmentPage() {
     // Load models + check enrollment status
     useEffect(() => {
         let cancelled = false;
-        console.log(`[face-enroll] Init: employeeId=${employeeId} role=${currentUser.role}`);
+        console.log(`[face-enroll] Init: employeeId=${employeeId}`);
         (async () => {
             try {
                 await loadFaceModels();
@@ -254,7 +254,7 @@ export default function FaceEnrollmentPage() {
 
                     // Log every 4th frame to avoid console spam
                     if (trackFrameCount % 4 === 1) {
-                        console.log(`[face-enroll] Track #${trackFrameCount} (step=${step}): ${result ? `score=${result.score.toFixed(2)} yaw=${result.yaw.toFixed(2)} faces=${result.faceCount} ratio=${(result.box.width / (videoRef.current?.videoWidth || 640)).toFixed(2)}` : "no face"} stable=${stableCountRef.current} guidance=${guidanceColor}`);
+                        console.log(`[face-enroll] Track #${trackFrameCount} (step=${step}): ${result ? `score=${result.score.toFixed(2)} yaw=${result.yaw.toFixed(2)} faces=${result.faceCount} ratio=${(result.box.width / (videoRef.current?.videoWidth || 640)).toFixed(2)}` : "no face"} stable=${stableCountRef.current}`);
                     }
 
                     if (!result) {

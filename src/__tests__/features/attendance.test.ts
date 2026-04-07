@@ -362,7 +362,6 @@ describe("Attendance Store", () => {
         it("should generate out_of_geofence exception for failed geofence check", () => {
             const { result } = renderHook(() => useAttendanceStore());
             const employeeId = "EMP-TEST-001";
-            const eventId = `EVT-${TODAY}-001`;
 
             // Add event with failed geofence
             act(() => {
