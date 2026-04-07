@@ -7,7 +7,7 @@ import { SEED_LOANS } from "@/data/seed";
 
 interface LoansState {
     loans: Loan[];
-    createLoan: (loan: Omit<Loan, "id" | "createdAt" | "remainingBalance" | "deductionCapPercent"> & { deductionCapPercent?: number }) => void;
+    createLoan: (loan: Omit<Loan, "id" | "createdAt" | "remainingBalance" | "deductionCapPercent" | "approvedBy"> & { deductionCapPercent?: number; approvedBy?: string }) => void;
     deductFromLoan: (id: string, amount: number) => void;
     settleLoan: (id: string) => void;
     freezeLoan: (id: string) => void;
@@ -44,6 +44,7 @@ export const useLoansStore = create<LoansState>()(
                         id: `LN-${nanoid(8)}`,
                         remainingBalance: data.amount,
                         deductionCapPercent: data.deductionCapPercent ?? 30,
+                        approvedBy: data.approvedBy ?? "system",
                         createdAt: new Date().toISOString().split("T")[0],
                     };
                     return { loans: [...s.loans, newLoan] };

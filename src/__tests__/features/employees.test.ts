@@ -14,7 +14,7 @@ const MOCK_EMPLOYEE = {
     role: "employee",
     department: "Engineering",
     status: "active" as const,
-    workType: "onsite" as const,
+    workType: "ONSITE" as const,
     salary: 25000,
     joinDate: "2026-01-15",
     productivity: 85,
@@ -152,11 +152,11 @@ describe("Employees Store", () => {
             const { result } = renderHook(() => useEmployeesStore());
 
             act(() => {
-                result.current.setWorkTypeFilter("onsite");
-            });
+                result.current.setWorkTypeFilter("ONSITE");
+            })
 
             const filtered = result.current.getFiltered();
-            expect(filtered.every((e) => e.workType === "onsite")).toBe(true);
+            expect(filtered.every((e) => e.workType === "ONSITE")).toBe(true);
         });
 
         it("should return all when filter is 'all'", () => {

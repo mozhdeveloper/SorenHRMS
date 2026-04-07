@@ -280,10 +280,8 @@ describe("Attendance Store", () => {
                     eventId,
                     gpsLat: 14.5547,
                     gpsLng: 121.0244,
-                    gpsAccuracy: 10,
+                    gpsAccuracyMeters: 10,
                     geofencePass: true,
-                    distanceFromSite: 15,
-                    capturedAt: new Date().toISOString(),
                 });
             });
 
@@ -382,10 +380,8 @@ describe("Attendance Store", () => {
                     eventId: events[0].id,
                     gpsLat: 14.6760,
                     gpsLng: 121.0437,
-                    gpsAccuracy: 10,
+                    gpsAccuracyMeters: 10,
                     geofencePass: false,
-                    distanceFromSite: 500,
-                    capturedAt: new Date().toISOString(),
                 });
             });
 

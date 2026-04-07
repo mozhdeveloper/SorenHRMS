@@ -1536,7 +1536,7 @@ export function startRealtime(): void {
     .subscribe((status: string, err?: unknown) => {
       if (status === "SUBSCRIBED") {
         _realtimeRetries = 0;
-        console.log("[realtime] Connected — watching 28 tables");
+        console.log("[realtime] Connected — watching 23 tables");
       }
       if (status === "CHANNEL_ERROR") {
         const errMsg = err instanceof Error ? err.message : (typeof err === "string" ? err : "");
