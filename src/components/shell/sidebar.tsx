@@ -201,6 +201,7 @@ export function Sidebar() {
                             width={showLabel ? 140 : 36}
                             height={36}
                             className="sidebar-logo transition-all duration-300"
+                            style={{ width: "auto", height: "auto", maxHeight: 36 }}
                             priority
                         />
                     )}

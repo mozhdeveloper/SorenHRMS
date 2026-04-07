@@ -669,22 +669,28 @@ export const payrollDb = {
 
   // ─── Payroll Signature Config ────────────────────────────────
   async fetchSignatureConfig(): Promise<PayrollSignatureConfig | null> {
-    const { data, error } = await supabase()
-      .from("payroll_signature_config")
-      .select("*")
-      .eq("id", "default")
-      .single();
-    if (error) {
-      if (error.code !== "PGRST116") console.error("[db] fetchSignatureConfig:", error.message);
+    try {
+      const { data, error } = await supabase()
+        .from("payroll_signature_config")
+        .select("*")
+        .eq("id", "default")
+        .single();
+      if (error) {
+        // PGRST116 = no rows, 406 = table may not exist or RLS blocks access
+        // Silently return null for expected failure modes
+        return null;
+      }
+      const row = keysToCamel(data as Record<string, unknown>) as Record<string, unknown>;
+      return {
+        mode: row.mode as "auto" | "manual",
+        signatoryName: row.signatoryName as string,
+        signatoryTitle: row.signatoryTitle as string,
+        signatureDataUrl: row.signatureDataUrl as string | undefined,
+      };
+    } catch {
+      // Network or other error — return null gracefully
       return null;
     }
-    const row = keysToCamel(data as Record<string, unknown>) as Record<string, unknown>;
-    return {
-      mode: row.mode as "auto" | "manual",
-      signatoryName: row.signatoryName as string,
-      signatoryTitle: row.signatoryTitle as string,
-      signatureDataUrl: row.signatureDataUrl as string | undefined,
-    };
   },
 
   async upsertSignatureConfig(config: PayrollSignatureConfig): Promise<boolean> {
