@@ -18,13 +18,14 @@ interface EmployeesState {
     setStatusFilter: (s: EmployeeStatus | "all") => void;
     setWorkTypeFilter: (w: WorkType | "all") => void;
     setDepartmentFilter: (d: string) => void;
-    addEmployee: (emp: Employee) => void;
+    addEmployee: (emp: Employee) => { ok: boolean; error?: string };
     updateEmployee: (id: string, data: Partial<Employee>) => void;
     removeEmployee: (id: string) => void;
     toggleStatus: (id: string) => void;
     resignEmployee: (id: string) => void;
     getEmployee: (id: string) => Employee | undefined;
     getFiltered: () => Employee[];
+    deduplicateEmployees: () => number;
     // Salary change governance
     proposeSalaryChange: (data: { employeeId: string; proposedSalary: number; effectiveDate: string; reason: string; proposedBy: string }) => void;
     approveSalaryChange: (requestId: string, reviewerId: string) => void;
@@ -34,6 +35,16 @@ interface EmployeesState {
     removeDocument: (employeeId: string, docId: string) => void;
     getDocuments: (employeeId: string) => EmployeeDocument[];
     resetToSeed: () => void;
+}
+
+// Helper to deduplicate employees array by ID (keeps first occurrence)
+function dedupeById(employees: Employee[]): Employee[] {
+    const seen = new Set<string>();
+    return employees.filter((e) => {
+        if (seen.has(e.id)) return false;
+        seen.add(e.id);
+        return true;
+    });
 }
 
 export const useEmployeesStore = create<EmployeesState>()(
@@ -51,7 +62,19 @@ export const useEmployeesStore = create<EmployeesState>()(
             setStatusFilter: (s) => set({ statusFilter: s }),
             setWorkTypeFilter: (w) => set({ workTypeFilter: w }),
             setDepartmentFilter: (d) => set({ departmentFilter: d }),
-            addEmployee: (emp) => set((s) => ({ employees: [...s.employees, emp] })),
+            addEmployee: (emp) => {
+                const { employees } = get();
+                // Check for duplicate ID
+                if (employees.some((e) => e.id === emp.id)) {
+                    return { ok: false, error: `Employee ID "${emp.id}" already exists.` };
+                }
+                // Check for duplicate email
+                if (employees.some((e) => e.email.toLowerCase() === emp.email.toLowerCase())) {
+                    return { ok: false, error: `An employee with email "${emp.email}" already exists.` };
+                }
+                set({ employees: [...employees, emp] });
+                return { ok: true };
+            },
             updateEmployee: (id, data) =>
                 set((s) => {
                     // Salary changes are passed through here for admin/finance direct edits.
@@ -96,6 +119,15 @@ export const useEmployeesStore = create<EmployeesState>()(
                     const matchesDept = departmentFilter === "all" || e.department === departmentFilter;
                     return matchesSearch && matchesStatus && matchesWorkType && matchesDept;
                 });
+            },
+            deduplicateEmployees: () => {
+                const { employees } = get();
+                const before = employees.length;
+                const deduped = dedupeById(employees);
+                if (deduped.length < before) {
+                    set({ employees: deduped });
+                }
+                return before - deduped.length;
             },
             // ─── Salary Change Governance ─────────────────────────────
             proposeSalaryChange: (data) =>
@@ -197,6 +229,18 @@ export const useEmployeesStore = create<EmployeesState>()(
                 workTypeFilter: "all" as const,
                 departmentFilter: "all",
             }),
+            // Auto-deduplicate employees on store rehydration
+            merge: (persisted, current) => {
+                const persistedState = persisted as Partial<EmployeesState> | undefined;
+                const currentState = current as EmployeesState;
+                if (!persistedState) return currentState;
+                return {
+                    ...currentState,
+                    ...persistedState,
+                    // Deduplicate employees by ID
+                    employees: dedupeById(persistedState.employees ?? currentState.employees),
+                };
+            },
         }
     )
 );

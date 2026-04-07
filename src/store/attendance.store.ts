@@ -594,6 +594,37 @@ export const useAttendanceStore = create<AttendanceState>()(
                 }
                 return state;
             },
+            // Deduplicate logs on rehydration (one log per employee+date)
+            merge: (persisted, current) => {
+                const persistedState = persisted as Partial<AttendanceState> | undefined;
+                const currentState = current as AttendanceState;
+                if (!persistedState) return currentState;
+                
+                // Deduplicate logs by employee+date (keep latest based on updatedAt)
+                const logs = persistedState.logs ?? currentState.logs;
+                const logMap = new Map<string, AttendanceLog>();
+                for (const log of logs) {
+                    const key = `${log.employeeId}|${log.date}`;
+                    const existing = logMap.get(key);
+                    if (!existing || (log.updatedAt && existing.updatedAt && log.updatedAt > existing.updatedAt)) {
+                        logMap.set(key, log);
+                    }
+                }
+                
+                // Deduplicate events by ID
+                const events = persistedState.events ?? currentState.events;
+                const eventMap = new Map<string, AttendanceEvent>();
+                for (const ev of events) {
+                    if (!eventMap.has(ev.id)) eventMap.set(ev.id, ev);
+                }
+                
+                return {
+                    ...currentState,
+                    ...persistedState,
+                    logs: Array.from(logMap.values()),
+                    events: Array.from(eventMap.values()),
+                };
+            },
         }
     )
 );

@@ -455,7 +455,7 @@ export default function AdminEmployeesView() {
         // Use validated/formatted phone number
         const formattedPhone = newPhone ? validatePhone(newPhone).formatted : undefined;
         
-        addEmployee({
+        const addResult = addEmployee({
             id, name: newName, email: newEmail, role: newRole, department: newDept, workType: newWorkType,
             salary: Number(newSalary) || 0, joinDate: new Date().toISOString().split("T")[0], productivity: 80,
             status: "active", location: "", phone: formattedPhone,
@@ -467,6 +467,13 @@ export default function AdminEmployeesView() {
             address: newAddress || undefined,
             ...(newPayFreq !== "company" ? { payFrequency: newPayFreq as PayFrequency } : {}),
         });
+        
+        if (!addResult.ok) {
+            toast.error(addResult.error || "Failed to add employee");
+            setAddingEmployee(false);
+            return;
+        }
+        
         if (newPassword) {
             if (USE_DEMO_MODE) {
                 const result = createAccount({ name: newName, email: newEmail, role: newSystemRole, password: newPassword, mustChangePassword: newMustChange, profileComplete: true }, currentUser.email);
