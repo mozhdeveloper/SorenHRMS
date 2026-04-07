@@ -3,6 +3,8 @@
 import { useState, useMemo, useCallback } from "react";
 import {
     format, subDays, addDays, eachDayOfInterval, isWeekend, isSameDay,
+    startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, addWeeks,
+    subMonths, addMonths,
 } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,18 +24,25 @@ import {
 import type { AttendanceLog, Employee, Project } from "@/types";
 
 /* ─── Status colour map ─────────────────────────────────────── */
-const STATUS_COLORS: Record<string, { bg: string; ring: string; label: string }> = {
-    present:  { bg: "bg-emerald-500", ring: "ring-emerald-400", label: "Present" },
-    absent:   { bg: "bg-red-500",     ring: "ring-red-400",     label: "Absent" },
-    on_leave: { bg: "bg-amber-500",   ring: "ring-amber-400",   label: "On Leave" },
-    late:     { bg: "bg-orange-500",   ring: "ring-orange-400",  label: "Late" },
-    wfh:      { bg: "bg-blue-500",     ring: "ring-blue-400",    label: "WFH" },
-    holiday:  { bg: "bg-violet-500",   ring: "ring-violet-400",  label: "Holiday" },
+const STATUS_COLORS: Record<string, { bg: string; ring: string; label: string; text: string }> = {
+    present:  { bg: "bg-emerald-500", ring: "ring-emerald-400", label: "Present",  text: "text-emerald-700 dark:text-emerald-400" },
+    absent:   { bg: "bg-red-500",     ring: "ring-red-400",     label: "Absent",   text: "text-red-700 dark:text-red-400" },
+    on_leave: { bg: "bg-amber-500",   ring: "ring-amber-400",   label: "On Leave", text: "text-amber-700 dark:text-amber-400" },
+    late:     { bg: "bg-orange-500",   ring: "ring-orange-400",  label: "Late",     text: "text-orange-700 dark:text-orange-400" },
+    wfh:      { bg: "bg-blue-500",     ring: "ring-blue-400",    label: "WFH",      text: "text-blue-700 dark:text-blue-400" },
+    holiday:  { bg: "bg-violet-500",   ring: "ring-violet-400",  label: "Holiday",  text: "text-violet-700 dark:text-violet-400" },
 };
 const WEEKEND_BG = "bg-muted/40";
 const EMPTY_BG   = "bg-muted/20";
 
 type HeatmapStatus = "present" | "absent" | "on_leave" | "late" | "wfh" | "holiday";
+type ViewMode = "week" | "2weeks" | "month";
+
+const VIEW_LABELS: Record<ViewMode, string> = {
+    week: "Week",
+    "2weeks": "2 Weeks",
+    month: "Month",
+};
 
 function resolveStatus(log: AttendanceLog | undefined, isHoliday: boolean): HeatmapStatus | null {
     if (isHoliday) return "holiday";
@@ -59,14 +68,29 @@ export interface AttendanceHeatmapProps {
 export function AttendanceHeatmap({
     logs, employees, projects, holidays, canEdit, onStatusChange,
 }: AttendanceHeatmapProps) {
-    // ─── Date range (default: last 30 days) ───────────────────────
-    const [endDate, setEndDate] = useState(() => new Date());
-    const [daysToShow, setDaysToShow] = useState(30);
+    // ─── View mode (default: weekly) ──────────────────────────────
+    const [viewMode, setViewMode] = useState<ViewMode>("week");
+    const [anchorDate, setAnchorDate] = useState(() => new Date());
 
     const dateRange = useMemo(() => {
-        const start = subDays(endDate, daysToShow - 1);
-        return eachDayOfInterval({ start, end: endDate });
-    }, [endDate, daysToShow]);
+        if (viewMode === "week") {
+            const start = startOfWeek(anchorDate, { weekStartsOn: 1 });
+            const end = endOfWeek(anchorDate, { weekStartsOn: 1 });
+            return eachDayOfInterval({ start, end });
+        }
+        if (viewMode === "2weeks") {
+            const thisWeekStart = startOfWeek(anchorDate, { weekStartsOn: 1 });
+            const start = subDays(thisWeekStart, 7);
+            const end = endOfWeek(anchorDate, { weekStartsOn: 1 });
+            return eachDayOfInterval({ start, end });
+        }
+        // month
+        const start = startOfMonth(anchorDate);
+        const end = endOfMonth(anchorDate);
+        return eachDayOfInterval({ start, end });
+    }, [anchorDate, viewMode]);
+
+    const isCompact = viewMode === "month";
 
     const holidayDates = useMemo(() => new Set(holidays.map((h) => h.date)), [holidays]);
 
@@ -159,9 +183,17 @@ export function AttendanceHeatmap({
     const modalEmp = employees.find((e) => e.id === modalEmpId);
 
     // ─── Navigation ───────────────────────────────────────────────
-    const goBack = () => setEndDate((d) => subDays(d, 7));
-    const goForward = () => setEndDate((d) => addDays(d, 7));
-    const goToday = () => setEndDate(new Date());
+    const goBack = () => {
+        if (viewMode === "week") setAnchorDate((d) => subWeeks(d, 1));
+        else if (viewMode === "2weeks") setAnchorDate((d) => subWeeks(d, 2));
+        else setAnchorDate((d) => subMonths(d, 1));
+    };
+    const goForward = () => {
+        if (viewMode === "week") setAnchorDate((d) => addWeeks(d, 1));
+        else if (viewMode === "2weeks") setAnchorDate((d) => addWeeks(d, 2));
+        else setAnchorDate((d) => addMonths(d, 1));
+    };
+    const goToday = () => setAnchorDate(new Date());
 
     // ─── Summary stats ────────────────────────────────────────────
     const stats = useMemo(() => {
@@ -183,6 +215,12 @@ export function AttendanceHeatmap({
         return { present, absent, late, onLeave };
     }, [displayEmployees, dateRange, logMap, holidayDates]);
 
+    // ─── Cell size based on view ──────────────────────────────────
+    const cellW = isCompact ? "w-[28px]" : viewMode === "2weeks" ? "w-[48px]" : "w-[80px]";
+    const cellH = isCompact ? "h-[28px]" : viewMode === "2weeks" ? "h-[40px]" : "h-[44px]";
+    const dotSize = isCompact ? "w-3 h-3" : "w-4 h-4";
+    const empColW = isCompact ? "w-[200px]" : "w-[220px]";
+
     return (
         <div className="space-y-4">
             {/* ─── Summary Cards ──────────────────────────────────── */}
@@ -193,9 +231,45 @@ export function AttendanceHeatmap({
                 <SummaryCard label="On Leave" count={stats.onLeave} color="bg-amber-500" />
             </div>
 
-            {/* ─── Filters ────────────────────────────────────────── */}
+            {/* ─── Toolbar: View Toggle + Filters ─────────────────── */}
             <Card className="border border-border/50">
-                <CardContent className="p-3">
+                <CardContent className="p-3 space-y-3">
+                    {/* Row 1: View toggle + navigation */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-0.5">
+                            {(["week", "2weeks", "month"] as ViewMode[]).map((mode) => (
+                                <button
+                                    key={mode}
+                                    type="button"
+                                    onClick={() => setViewMode(mode)}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                                        viewMode === mode
+                                            ? "bg-background text-foreground shadow-sm"
+                                            : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                >
+                                    {VIEW_LABELS[mode]}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" size="icon" className="h-7 w-7" onClick={goBack}>
+                                <ChevronLeft className="h-4 w-4" />
+                            </Button>
+                            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={goToday}>
+                                <CalendarDays className="h-3.5 w-3.5" /> Today
+                            </Button>
+                            <Button variant="outline" size="icon" className="h-7 w-7" onClick={goForward}>
+                                <ChevronRight className="h-4 w-4" />
+                            </Button>
+                            <span className="text-xs text-muted-foreground hidden sm:inline ml-1">
+                                {viewMode === "month"
+                                    ? format(anchorDate, "MMMM yyyy")
+                                    : `${format(dateRange[0], "MMM d")} — ${format(dateRange[dateRange.length - 1], "MMM d, yyyy")}`}
+                            </span>
+                        </div>
+                    </div>
+                    {/* Row 2: Filters */}
                     <div className="flex flex-wrap items-center gap-2">
                         <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
                         <Input
@@ -238,38 +312,12 @@ export function AttendanceHeatmap({
                                 <SelectItem value="on_leave">On Leave</SelectItem>
                             </SelectContent>
                         </Select>
-                        <Select value={String(daysToShow)} onValueChange={(v) => setDaysToShow(Number(v))}>
-                            <SelectTrigger className="w-full sm:w-[110px] h-8 text-xs">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="7">7 Days</SelectItem>
-                                <SelectItem value="14">14 Days</SelectItem>
-                                <SelectItem value="30">30 Days</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <span className="text-xs text-muted-foreground ml-auto">
+                            {displayEmployees.length} employee{displayEmployees.length !== 1 ? "s" : ""}
+                        </span>
                     </div>
                 </CardContent>
             </Card>
-
-            {/* ─── Date Navigation ────────────────────────────────── */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" size="icon" className="h-7 w-7" onClick={goBack}>
-                        <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={goToday}>
-                        <CalendarDays className="h-3.5 w-3.5" /> Today
-                    </Button>
-                    <Button variant="outline" size="icon" className="h-7 w-7" onClick={goForward}>
-                        <ChevronRight className="h-4 w-4" />
-                    </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                    {format(dateRange[0], "MMM d")} — {format(dateRange[dateRange.length - 1], "MMM d, yyyy")}
-                    {" · "}{displayEmployees.length} employee{displayEmployees.length !== 1 ? "s" : ""}
-                </p>
-            </div>
 
             {/* ─── Heatmap Grid ───────────────────────────────────── */}
             <Card className="border border-border/50">
@@ -277,8 +325,8 @@ export function AttendanceHeatmap({
                     <div className="overflow-x-auto">
                         <div className="min-w-fit">
                             {/* Header: dates */}
-                            <div className="flex border-b border-border/50">
-                                <div className="shrink-0 w-[200px] p-2 border-r border-border/50 bg-muted/30">
+                            <div className="flex border-b border-border/50 sticky top-0 bg-background z-10">
+                                <div className={`shrink-0 ${empColW} p-2 border-r border-border/50 bg-muted/30`}>
                                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Employee / Role</p>
                                 </div>
                                 <div className="flex">
@@ -289,13 +337,21 @@ export function AttendanceHeatmap({
                                         return (
                                             <div
                                                 key={d.toISOString()}
-                                                className={`w-[28px] shrink-0 text-center py-1.5 border-r border-border/30 ${isToday ? "bg-blue-500/10" : isHol ? "bg-violet-500/5" : isWknd ? "bg-muted/20" : ""}`}
+                                                className={`${cellW} shrink-0 text-center border-r border-border/30 flex flex-col items-center justify-center ${
+                                                    isCompact ? "py-1.5" : "py-2"
+                                                } ${
+                                                    isToday ? "bg-blue-500/10" : isHol ? "bg-violet-500/5" : isWknd ? "bg-muted/20" : ""
+                                                }`}
                                             >
-                                                <p className={`text-[8px] leading-tight ${isToday ? "font-bold text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`}>
-                                                    {format(d, "EEE").charAt(0)}
+                                                <p className={`${isCompact ? "text-[8px]" : "text-[10px]"} leading-tight font-medium ${
+                                                    isToday ? "text-blue-600 dark:text-blue-400" : isWknd ? "text-muted-foreground/60" : "text-muted-foreground"
+                                                }`}>
+                                                    {isCompact ? format(d, "EEE").charAt(0) : format(d, "EEE")}
                                                 </p>
-                                                <p className={`text-[9px] leading-tight font-mono ${isToday ? "font-bold text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`}>
-                                                    {format(d, "d")}
+                                                <p className={`${isCompact ? "text-[9px]" : "text-xs"} leading-tight font-mono ${
+                                                    isToday ? "font-bold text-blue-600 dark:text-blue-400" : "text-muted-foreground"
+                                                }`}>
+                                                    {isCompact ? format(d, "d") : format(d, "d MMM")}
                                                 </p>
                                             </div>
                                         );
@@ -311,7 +367,7 @@ export function AttendanceHeatmap({
                                 return (
                                     <div key={emp.id} className="flex border-b border-border/30 hover:bg-muted/10 transition-colors">
                                         {/* Employee name + role + project */}
-                                        <div className="shrink-0 w-[200px] p-2 border-r border-border/50 flex flex-col justify-center">
+                                        <div className={`shrink-0 ${empColW} p-2 border-r border-border/50 flex flex-col justify-center`}>
                                             <p className="text-xs font-medium truncate">{emp.name}</p>
                                             <p className="text-[10px] text-muted-foreground truncate">
                                                 {emp.role} · {proj ? proj.name : emp.department}
@@ -334,11 +390,11 @@ export function AttendanceHeatmap({
                                                         <TooltipTrigger asChild>
                                                             <button
                                                                 type="button"
-                                                                className={`w-[28px] h-[28px] shrink-0 flex items-center justify-center border-r border-border/30 transition-all ${
+                                                                className={`${cellW} ${cellH} shrink-0 flex flex-col items-center justify-center gap-0.5 border-r border-border/30 transition-all ${
                                                                     canEdit && !isWknd && !isFuture
                                                                         ? "cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-offset-background " + (colorInfo?.ring || "hover:ring-muted-foreground/30")
                                                                         : "cursor-default"
-                                                                }`}
+                                                                } ${isWknd ? "bg-muted/10" : ""}`}
                                                                 onClick={() => {
                                                                     if (canEdit && !isWknd && !isFuture) {
                                                                         openCellModal(emp.id, d);
@@ -347,15 +403,22 @@ export function AttendanceHeatmap({
                                                                 disabled={isWknd || isFuture}
                                                             >
                                                                 {isWknd ? (
-                                                                    <span className={`w-3 h-3 rounded-sm ${WEEKEND_BG}`} />
+                                                                    <span className={`${dotSize} rounded-full ${WEEKEND_BG}`} />
                                                                 ) : isFuture ? (
-                                                                    <span className={`w-3 h-3 rounded-sm ${EMPTY_BG}`} />
+                                                                    <span className={`${dotSize} rounded-full ${EMPTY_BG}`} />
                                                                 ) : colorInfo ? (
-                                                                    <span className={`w-3 h-3 rounded-sm ${colorInfo.bg} ${
-                                                                        status === "present" ? "opacity-90" : ""
-                                                                    }`} />
+                                                                    <>
+                                                                        <span className={`${dotSize} rounded-full ${colorInfo.bg} ${
+                                                                            status === "present" ? "opacity-90" : ""
+                                                                        }`} />
+                                                                        {!isCompact && (
+                                                                            <span className={`text-[9px] leading-none font-medium ${colorInfo.text}`}>
+                                                                                {colorInfo.label}
+                                                                            </span>
+                                                                        )}
+                                                                    </>
                                                                 ) : (
-                                                                    <span className={`w-3 h-3 rounded-sm ${EMPTY_BG} border border-dashed border-muted-foreground/20`} />
+                                                                    <span className={`${dotSize} rounded-full ${EMPTY_BG} border border-dashed border-muted-foreground/20`} />
                                                                 )}
                                                             </button>
                                                         </TooltipTrigger>
@@ -366,7 +429,7 @@ export function AttendanceHeatmap({
                                                             {isHol && <p className="text-violet-500">{holName || "Holiday"}</p>}
                                                             {status && !isWknd && (
                                                                 <p className="mt-0.5">
-                                                                    <span className={`inline-block w-2 h-2 rounded-sm mr-1 ${STATUS_COLORS[status]?.bg}`} />
+                                                                    <span className={`inline-block w-2 h-2 rounded-full mr-1 ${STATUS_COLORS[status]?.bg}`} />
                                                                     {STATUS_COLORS[status]?.label}
                                                                     {status === "late" && log?.lateMinutes ? ` (+${log.lateMinutes}m)` : ""}
                                                                 </p>
@@ -393,14 +456,14 @@ export function AttendanceHeatmap({
                 <span className="font-medium">Legend:</span>
                 {Object.entries(STATUS_COLORS).map(([key, val]) => (
                     <span key={key} className="flex items-center gap-1">
-                        <span className={`w-2.5 h-2.5 rounded-sm ${val.bg}`} /> {val.label}
+                        <span className={`w-2.5 h-2.5 rounded-full ${val.bg}`} /> {val.label}
                     </span>
                 ))}
                 <span className="flex items-center gap-1">
-                    <span className={`w-2.5 h-2.5 rounded-sm ${WEEKEND_BG} border border-muted-foreground/20`} /> Weekend
+                    <span className={`w-2.5 h-2.5 rounded-full ${WEEKEND_BG} border border-muted-foreground/20`} /> Weekend
                 </span>
                 <span className="flex items-center gap-1">
-                    <span className={`w-2.5 h-2.5 rounded-sm ${EMPTY_BG} border border-dashed border-muted-foreground/20`} /> No Data
+                    <span className={`w-2.5 h-2.5 rounded-full ${EMPTY_BG} border border-dashed border-muted-foreground/20`} /> No Data
                 </span>
             </div>
 
@@ -453,7 +516,7 @@ export function AttendanceHeatmap({
                             )}
 
                             <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                                ⚠️ This change will be logged for audit purposes.
+                                This change will be logged for audit purposes.
                             </p>
 
                             <div className="flex gap-2 pt-1">

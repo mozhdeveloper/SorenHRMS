@@ -1545,8 +1545,17 @@ export function startRealtime(): void {
           console.warn("[realtime] Channel error (check Supabase URL/key configuration)");
           return;
         }
+        // "mismatch between server and client bindings" = tables missing from
+        // supabase_realtime publication. This is a config issue — retrying won't help.
+        // Run migration 040_realtime_missing_tables_disable_rls.sql to fix.
+        if (errMsg.includes("mismatch")) {
+          console.warn(
+            "[realtime] Server/client binding mismatch — run migration 040 to add missing tables to supabase_realtime publication"
+          );
+          return;
+        }
         console.error("[realtime] Channel error", errMsg);
-        // Auto-retry with backoff
+        // Auto-retry with backoff (only for transient errors)
         if (_realtimeRetries < MAX_RETRIES) {
           _realtimeRetries++;
           const delay = _realtimeRetries * 2000;
