@@ -284,7 +284,22 @@ export const attendanceDb = {
   },
 
   async insertEvent(event: AttendanceEvent): Promise<boolean> {
-    return insertRow("attendance_events", event as unknown as Record<string, unknown>);
+    // Only sync DB-valid event types (IN, OUT, BREAK_START, BREAK_END)
+    // Audit events like OVERRIDE, CSV_IMPORTED, etc. are local-only
+    const validDbEventTypes = ["IN", "OUT", "BREAK_START", "BREAK_END"];
+    if (!validDbEventTypes.includes(event.eventType)) {
+      return true; // Skip local-only audit events
+    }
+    // Map to snake_case columns (DB doesn't have description, metadata, performedBy)
+    const row = {
+      id: event.id,
+      employee_id: event.employeeId,
+      event_type: event.eventType,
+      timestamp_utc: event.timestampUTC,
+      project_id: event.projectId || null,
+      device_id: event.deviceId || null,
+    };
+    return insertRow("attendance_events", row);
   },
 
   fetchHolidays: () => fetchAll<Holiday>("holidays"),

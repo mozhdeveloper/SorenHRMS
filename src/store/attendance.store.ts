@@ -30,6 +30,8 @@ interface AttendanceState {
 
     // ─── Auto-generated exceptions ────────────────────
     autoGenerateExceptions: (date: string, employeeIds: string[]) => void;
+    /** Auto-mark absent for employees who didn't check in after their shift ends (skips holidays) */
+    autoMarkAbsentAfterShift: (date: string, employees: Array<{ id: string; workDays?: string[]; shiftId?: string }>) => number;
     resolveException: (exceptionId: string, resolvedBy: string, notes?: string) => void;
     getExceptions: (filters?: { employeeId?: string; date?: string; resolved?: boolean }) => AttendanceException[];
 
@@ -184,6 +186,53 @@ export const useAttendanceStore = create<AttendanceState>()(
                     if (newExceptions.length === 0) return {};
                     return { exceptions: [...s.exceptions, ...newExceptions] };
                 }),
+
+            // ─── Auto-mark absent for employees after shift ends ──────────
+            autoMarkAbsentAfterShift: (date, employees) => {
+                const state = get();
+                const nowISO = new Date().toISOString();
+                const dayOfWeek = new Date(date + "T12:00:00").getDay(); // 0=Sun, 1=Mon, ... 6=Sat
+                const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                const dayName = dayNames[dayOfWeek];
+                // Skip if date is a holiday
+                if (state.holidays.some((h) => h.date === date)) {
+                    return 0;
+                }
+                const toMarkAbsent: string[] = [];
+                for (const emp of employees) {
+                    // Check if employee's work days include this day (default Mon-Fri)
+                    const workDays = emp.workDays ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
+                    if (!workDays.includes(dayName)) continue;
+                    // Check if employee already has a log for this date
+                    const existingLog = state.logs.find(
+                        (l) => l.employeeId === emp.id && l.date === date
+                    );
+                    // If already marked as present, on_leave, or absent, skip
+                    if (existingLog) continue;
+                    // Check if employee has any IN event for this date
+                    const hasCheckIn = state.events.some(
+                        (e) => e.employeeId === emp.id && e.eventType === "IN" && e.timestampUTC.startsWith(date)
+                    );
+                    if (hasCheckIn) continue;
+                    toMarkAbsent.push(emp.id);
+                }
+                if (toMarkAbsent.length === 0) return 0;
+                // Batch mark absent
+                set((s) => ({
+                    logs: [
+                        ...s.logs,
+                        ...toMarkAbsent.map((empId) => ({
+                            id: `ATT-${date}-${empId}`,
+                            employeeId: empId,
+                            date,
+                            status: "absent" as const,
+                            createdAt: nowISO,
+                            updatedAt: nowISO,
+                        })),
+                    ],
+                }));
+                return toMarkAbsent.length;
+            },
 
             resolveException: (exceptionId, resolvedBy, notes) =>
                 set((s) => ({

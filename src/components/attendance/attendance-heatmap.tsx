@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
-    format, subDays, addDays, eachDayOfInterval, isWeekend, isSameDay,
+    format, subDays, eachDayOfInterval, isWeekend, isSameDay,
     startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, addWeeks,
     subMonths, addMonths,
 } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -19,9 +20,9 @@ import {
     Tooltip, TooltipContent, TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-    ChevronLeft, ChevronRight, CalendarDays, Filter,
+    ChevronLeft, ChevronRight, CalendarDays, Filter, Clock, Briefcase, Calendar,
 } from "lucide-react";
-import type { AttendanceLog, Employee, Project } from "@/types";
+import type { AttendanceLog, Employee, Project, ShiftTemplate } from "@/types";
 
 /* ─── Status colour map ─────────────────────────────────────── */
 const STATUS_COLORS: Record<string, { bg: string; ring: string; label: string; text: string }> = {
@@ -59,6 +60,8 @@ export interface AttendanceHeatmapProps {
     holidays: Array<{ date: string; name: string }>;
     mode: "admin" | "hr" | "supervisor";
     canEdit: boolean;
+    shiftTemplates?: ShiftTemplate[];
+    employeeShifts?: Record<string, string>; // employeeId -> shiftId
     onStatusChange: (employeeId: string, date: string, newStatus: string, checkIn?: string, checkOut?: string, lateMinutes?: number) => void;
 }
 
@@ -67,6 +70,7 @@ export interface AttendanceHeatmapProps {
    ═══════════════════════════════════════════════════════════════ */
 export function AttendanceHeatmap({
     logs, employees, projects, holidays, canEdit, onStatusChange,
+    shiftTemplates = [], employeeShifts = {},
 }: AttendanceHeatmapProps) {
     // ─── View mode (default: weekly) ──────────────────────────────
     const [viewMode, setViewMode] = useState<ViewMode>("week");
@@ -151,16 +155,77 @@ export function AttendanceHeatmap({
     const [modalCheckOut, setModalCheckOut] = useState("");
     const [modalLate, setModalLate] = useState("0");
 
+    // Get employee's assigned shift
+    const getEmployeeShift = useCallback((empId: string): ShiftTemplate | undefined => {
+        const shiftId = employeeShifts[empId];
+        if (!shiftId) return shiftTemplates[0]; // fallback to first shift (Day Shift)
+        return shiftTemplates.find((s) => s.id === shiftId) || shiftTemplates[0];
+    }, [employeeShifts, shiftTemplates]);
+
+    const modalEmp = employees.find((e) => e.id === modalEmpId);
+    const modalShift = modalEmpId ? getEmployeeShift(modalEmpId) : undefined;
+
+    // Calculate late minutes based on check-in time and shift start
+    const computeLateMinutes = useCallback((checkInTime: string, shift?: ShiftTemplate): number => {
+        if (!checkInTime || !shift) return 0;
+        const [inH, inM] = checkInTime.split(":").map(Number);
+        const [shiftH, shiftM] = shift.startTime.split(":").map(Number);
+        const inTotal = inH * 60 + inM;
+        const shiftTotal = shiftH * 60 + shiftM;
+        const gracePeriod = shift.gracePeriod || 10;
+        const late = inTotal - shiftTotal - gracePeriod;
+        return Math.max(0, late);
+    }, []);
+
+    // Calculate hours worked
+    const computeHoursWorked = useCallback((checkIn: string, checkOut: string): number => {
+        if (!checkIn || !checkOut) return 0;
+        const [inH, inM] = checkIn.split(":").map(Number);
+        const [outH, outM] = checkOut.split(":").map(Number);
+        const inTotal = inH * 60 + inM;
+        const outTotal = outH * 60 + outM;
+        const diffMin = outTotal >= inTotal ? outTotal - inTotal : 24 * 60 - inTotal + outTotal;
+        return Math.round((diffMin / 60) * 10) / 10;
+    }, []);
+
+    // Auto-update late minutes when check-in changes
+    useEffect(() => {
+        if (modalCheckIn && modalShift) {
+            const late = computeLateMinutes(modalCheckIn, modalShift);
+            setModalLate(String(late));
+            // Auto-set status to present if check-in exists
+            if (modalStatus === "absent") {
+                setModalStatus("present");
+            }
+        } else if (!modalCheckIn && modalStatus === "present") {
+            // If check-in is cleared and status is present, suggest absent
+            setModalLate("0");
+        }
+    }, [modalCheckIn, modalShift, computeLateMinutes, modalStatus]);
+
     const openCellModal = useCallback((empId: string, date: Date) => {
         if (!canEdit) return;
         const dateStr = format(date, "yyyy-MM-dd");
         const log = logMap.get(`${empId}|${dateStr}`);
         setModalEmpId(empId);
         setModalDate(dateStr);
-        setModalStatus(log?.status || "present");
-        setModalCheckIn(log?.checkIn || "");
-        setModalCheckOut(log?.checkOut || "");
-        setModalLate(log?.lateMinutes != null ? String(log.lateMinutes) : "0");
+        
+        // Determine initial status
+        if (log) {
+            setModalStatus(log.status);
+            setModalCheckIn(log.checkIn || "");
+            setModalCheckOut(log.checkOut || "");
+            setModalLate(log.lateMinutes != null ? String(log.lateMinutes) : "0");
+        } else {
+            // No existing log - determine if should default to absent (past date) or present
+            const today = new Date();
+            const targetDate = new Date(dateStr + "T12:00:00");
+            const isPast = targetDate < today && format(targetDate, "yyyy-MM-dd") !== format(today, "yyyy-MM-dd");
+            setModalStatus(isPast ? "absent" : "present");
+            setModalCheckIn("");
+            setModalCheckOut("");
+            setModalLate("0");
+        }
         setModalOpen(true);
     }, [canEdit, logMap]);
 
@@ -179,8 +244,6 @@ export function AttendanceHeatmap({
     const getProjectForEmp = (empId: string) => {
         return projects.find((p) => p.assignedEmployeeIds?.includes(empId));
     };
-
-    const modalEmp = employees.find((e) => e.id === modalEmpId);
 
     // ─── Navigation ───────────────────────────────────────────────
     const goBack = () => {
@@ -224,7 +287,7 @@ export function AttendanceHeatmap({
     return (
         <div className="space-y-4">
             {/* ─── Summary Cards ──────────────────────────────────── */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <SummaryCard label="Present" count={stats.present} color="bg-emerald-500" />
                 <SummaryCard label="Absent" count={stats.absent} color="bg-red-500" />
                 <SummaryCard label="Late" count={stats.late} color="bg-orange-500" />
@@ -232,7 +295,7 @@ export function AttendanceHeatmap({
             </div>
 
             {/* ─── Toolbar: View Toggle + Filters ─────────────────── */}
-            <Card className="border border-border/50">
+            <Card className="border border-border/40 shadow-sm">
                 <CardContent className="p-3 space-y-3">
                     {/* Row 1: View toggle + navigation */}
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -320,13 +383,13 @@ export function AttendanceHeatmap({
             </Card>
 
             {/* ─── Heatmap Grid ───────────────────────────────────── */}
-            <Card className="border border-border/50">
+            <Card className="border border-border/40 shadow-sm">
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
                         <div className="min-w-fit">
                             {/* Header: dates */}
-                            <div className="flex border-b border-border/50 sticky top-0 bg-background z-10">
-                                <div className={`shrink-0 ${empColW} p-2 border-r border-border/50 bg-muted/30`}>
+                            <div className="flex border-b border-border/40 sticky top-0 bg-background z-10">
+                                <div className={`shrink-0 ${empColW} p-2 border-r border-border/40 bg-muted/30`}>
                                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Employee / Role</p>
                                 </div>
                                 <div className="flex">
@@ -367,7 +430,7 @@ export function AttendanceHeatmap({
                                 return (
                                     <div key={emp.id} className="flex border-b border-border/30 hover:bg-muted/10 transition-colors">
                                         {/* Employee name + role + project */}
-                                        <div className={`shrink-0 ${empColW} p-2 border-r border-border/50 flex flex-col justify-center`}>
+                                        <div className={`shrink-0 ${empColW} p-2 border-r border-border/40 flex flex-col justify-center`}>
                                             <p className="text-xs font-medium truncate">{emp.name}</p>
                                             <p className="text-[10px] text-muted-foreground truncate">
                                                 {emp.role} · {proj ? proj.name : emp.department}
@@ -452,8 +515,8 @@ export function AttendanceHeatmap({
             </Card>
 
             {/* ─── Legend ──────────────────────────────────────────── */}
-            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                <span className="font-medium">Legend:</span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground px-1">
+                <span className="font-semibold text-foreground/70 uppercase tracking-wider text-[10px]">Legend</span>
                 {Object.entries(STATUS_COLORS).map(([key, val]) => (
                     <span key={key} className="flex items-center gap-1">
                         <span className={`w-2.5 h-2.5 rounded-full ${val.bg}`} /> {val.label}
@@ -469,7 +532,7 @@ export function AttendanceHeatmap({
 
             {/* ═══ Status Change Modal ════════════════════════════════ */}
             <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-                <DialogContent className="max-w-sm">
+                <DialogContent className="max-w-md">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <CalendarDays className="h-5 w-5" /> Update Attendance
@@ -477,16 +540,61 @@ export function AttendanceHeatmap({
                     </DialogHeader>
                     {modalEmp && (
                         <div className="space-y-4 pt-2">
-                            <div className="bg-muted/30 rounded-lg p-3">
-                                <p className="text-sm font-medium">{modalEmp.name}</p>
+                            {/* Employee Info Card */}
+                            <div className="bg-muted/30 rounded-lg p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm font-medium">{modalEmp.name}</p>
+                                    <Badge variant="secondary" className="text-[10px]">{modalEmp.workType || "WFO"}</Badge>
+                                </div>
                                 <p className="text-xs text-muted-foreground">
                                     {modalEmp.department} · {format(new Date(modalDate + "T12:00:00"), "EEEE, MMM d, yyyy")}
                                 </p>
+                                
+                                {/* Shift Info */}
+                                {modalShift && (
+                                    <div className="flex items-center gap-2 pt-1">
+                                        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                                        <span className="text-xs">
+                                            <span className="font-medium">{modalShift.name}</span>
+                                            <span className="text-muted-foreground"> · {modalShift.startTime} – {modalShift.endTime}</span>
+                                            <span className="text-muted-foreground/70"> (grace: {modalShift.gracePeriod || 10}min)</span>
+                                        </span>
+                                    </div>
+                                )}
+                                
+                                {/* Work Days */}
+                                <div className="flex items-center gap-2">
+                                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <span className="text-xs text-muted-foreground">
+                                        Work Days: {modalEmp.workDays?.join(", ") || "Mon, Tue, Wed, Thu, Fri"}
+                                    </span>
+                                </div>
+
+                                {/* Project Assignment */}
+                                {(() => {
+                                    const proj = getProjectForEmp(modalEmpId);
+                                    return proj ? (
+                                        <div className="flex items-center gap-2">
+                                            <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
+                                            <span className="text-xs text-muted-foreground">
+                                                Project: {proj.name}
+                                            </span>
+                                        </div>
+                                    ) : null;
+                                })()}
                             </div>
 
+                            {/* Status Selection */}
                             <div>
                                 <label className="text-sm font-medium">Status</label>
-                                <Select value={modalStatus} onValueChange={setModalStatus}>
+                                <Select value={modalStatus} onValueChange={(val) => {
+                                    setModalStatus(val);
+                                    if (val === "absent" || val === "on_leave") {
+                                        setModalCheckIn("");
+                                        setModalCheckOut("");
+                                        setModalLate("0");
+                                    }
+                                }}>
                                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="present">Present</SelectItem>
@@ -501,16 +609,66 @@ export function AttendanceHeatmap({
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
                                             <label className="text-sm font-medium">Check In</label>
-                                            <Input type="time" value={modalCheckIn} onChange={(e) => setModalCheckIn(e.target.value)} className="mt-1" />
+                                            <Input 
+                                                type="time" 
+                                                value={modalCheckIn} 
+                                                onChange={(e) => setModalCheckIn(e.target.value)} 
+                                                className="mt-1" 
+                                            />
+                                            {modalShift && (
+                                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                                    Shift starts: {modalShift.startTime}
+                                                </p>
+                                            )}
                                         </div>
                                         <div>
                                             <label className="text-sm font-medium">Check Out</label>
-                                            <Input type="time" value={modalCheckOut} onChange={(e) => setModalCheckOut(e.target.value)} className="mt-1" />
+                                            <Input 
+                                                type="time" 
+                                                value={modalCheckOut} 
+                                                onChange={(e) => setModalCheckOut(e.target.value)} 
+                                                className="mt-1" 
+                                            />
+                                            {modalShift && (
+                                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                                    Shift ends: {modalShift.endTime}
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
-                                    <div>
-                                        <label className="text-sm font-medium">Late Minutes</label>
-                                        <Input type="number" min="0" max="480" value={modalLate} onChange={(e) => setModalLate(e.target.value)} placeholder="0" className="mt-1" />
+                                    
+                                    {/* Late Minutes (auto-computed) */}
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-sm font-medium">Late Minutes</label>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <Input 
+                                                    type="number" 
+                                                    min="0" 
+                                                    max="480" 
+                                                    value={modalLate} 
+                                                    onChange={(e) => setModalLate(e.target.value)} 
+                                                    className="flex-1"
+                                                />
+                                                {Number(modalLate) > 0 && (
+                                                    <Badge variant="outline" className="text-[10px] bg-orange-500/10 text-orange-600 border-orange-500/30">
+                                                        +{modalLate}m late
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                                                Auto-computed from shift start + grace period
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium">Hours Worked</label>
+                                            <div className="mt-1 h-9 flex items-center px-3 bg-muted/50 rounded-md text-sm">
+                                                {modalCheckIn && modalCheckOut 
+                                                    ? `${computeHoursWorked(modalCheckIn, modalCheckOut)}h`
+                                                    : "—"
+                                                }
+                                            </div>
+                                        </div>
                                     </div>
                                 </>
                             )}
@@ -531,16 +689,18 @@ export function AttendanceHeatmap({
     );
 }
 
-/* ─── Small summary card ─────────────────────────────────────── */
+/* ─── KPI Summary Card (modern SaaS style) ──────────────────── */
 function SummaryCard({ label, count, color }: { label: string; count: number; color: string }) {
     return (
-        <div className="rounded-lg border border-border/50 p-3 flex items-center gap-3">
-            <div className={`h-8 w-8 rounded-full ${color}/15 flex items-center justify-center`}>
-                <span className={`h-3 w-3 rounded-full ${color}`} />
-            </div>
-            <div>
-                <p className="text-lg font-bold leading-none">{count}</p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">{label}</p>
+        <div className="group relative rounded-xl border border-border/40 bg-gradient-to-br from-background to-muted/20 p-4 transition-all hover:shadow-md hover:border-border/60">
+            <div className="flex items-center justify-between">
+                <div>
+                    <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
+                    <p className="text-2xl font-bold tracking-tight mt-1">{count}</p>
+                </div>
+                <div className={`h-10 w-10 rounded-xl ${color}/10 flex items-center justify-center transition-transform group-hover:scale-110`}>
+                    <span className={`h-4 w-4 rounded-full ${color} shadow-sm`} />
+                </div>
             </div>
         </div>
     );
