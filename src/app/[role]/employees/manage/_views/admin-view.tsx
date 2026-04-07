@@ -812,29 +812,137 @@ export default function AdminEmployeesView() {
                                     <SelectContent><SelectItem value="all">All Types</SelectItem><SelectItem value="WFH">WFH</SelectItem><SelectItem value="WFO">WFO</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem></SelectContent>
                                 </Select>
                                 <Sheet>
-                                    <SheetTrigger asChild><Button variant="outline" size="sm" className="gap-1.5"><SlidersHorizontal className="h-4 w-4" /> Advanced</Button></SheetTrigger>
-                                    <SheetContent className="w-[340px]">
-                                        <SheetHeader><SheetTitle>Advanced Filters</SheetTitle></SheetHeader>
-                                        <div className="space-y-6 mt-6">
-                                            <div><label className="text-sm font-medium">Department</label>
-                                                <Select value={departmentFilter} onValueChange={setDepartmentFilter}><SelectTrigger className="mt-1.5"><SelectValue placeholder="All" /></SelectTrigger><SelectContent><SelectItem value="all">All Departments</SelectItem>{departments.filter((d) => d.isActive).map((d) => <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>)}</SelectContent></Select>
+                                    <SheetTrigger asChild>
+                                        <Button variant="outline" size="sm" className="gap-1.5 relative">
+                                            <SlidersHorizontal className="h-4 w-4" />
+                                            Advanced
+                                            {(() => {
+                                                const count = [
+                                                    departmentFilter !== "all",
+                                                    salaryRange[0] > 0 || salaryRange[1] < 200000,
+                                                    Object.values(visibleCols).some((v) => !v),
+                                                ].filter(Boolean).length;
+                                                return count > 0 ? (
+                                                    <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                                                        {count}
+                                                    </span>
+                                                ) : null;
+                                            })()}
+                                        </Button>
+                                    </SheetTrigger>
+                                    <SheetContent className="w-[320px] sm:w-[360px] flex flex-col gap-0 p-0">
+                                        {/* Header */}
+                                        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                                            <div>
+                                                <SheetTitle className="text-base font-semibold">Advanced Filters</SheetTitle>
+                                                <p className="text-xs text-muted-foreground mt-0.5">Narrow down the employee list</p>
                                             </div>
-                                            <div><label className="text-sm font-medium">Monthly Salary Range</label>
-                                                <div className="mt-3 px-1">
-                                                    <Slider min={0} max={200000} step={5000} value={salaryRange} onValueChange={setSalaryRange} />
-                                                    <div className="flex justify-between text-xs text-muted-foreground mt-2"><span>{formatCurrency(salaryRange[0])}</span><span>{formatCurrency(salaryRange[1])}</span></div>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="text-xs text-muted-foreground hover:text-foreground h-7 px-2"
+                                                onClick={() => {
+                                                    setDepartmentFilter("all");
+                                                    setSalaryRange([0, 200000]);
+                                                    setVisibleCols({ id: true, name: true, status: true, role: true, department: false, project: true, teamLeader: true, productivity: true, joinDate: true, salary: true, workType: true });
+                                                }}
+                                            >
+                                                Reset all
+                                            </Button>
+                                        </div>
+
+                                        {/* Scrollable body */}
+                                        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+
+                                            {/* Department */}
+                                            <div>
+                                                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Department</p>
+                                                <Select value={departmentFilter} onValueChange={(v) => { setDepartmentFilter(v); setPage(1); }}>
+                                                    <SelectTrigger className="h-9 text-sm">
+                                                        <SelectValue placeholder="All Departments" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="all">All Departments</SelectItem>
+                                                        {departments.filter((d) => d.isActive).map((d) => (
+                                                            <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="h-px bg-border" />
+
+                                            {/* Salary Range */}
+                                            <div>
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Monthly Salary</p>
+                                                    {(salaryRange[0] > 0 || salaryRange[1] < 200000) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSalaryRange([0, 200000])}
+                                                            className="text-[10px] text-primary hover:underline"
+                                                        >
+                                                            Clear
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <Slider
+                                                    min={0} max={200000} step={5000}
+                                                    value={salaryRange}
+                                                    onValueChange={setSalaryRange}
+                                                    className="mb-3"
+                                                />
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+                                                        <p className="text-[10px] text-muted-foreground mb-0.5">Min</p>
+                                                        <p className="text-sm font-medium">{formatCurrency(salaryRange[0])}</p>
+                                                    </div>
+                                                    <div className="rounded-md border border-border bg-muted/40 px-3 py-2">
+                                                        <p className="text-[10px] text-muted-foreground mb-0.5">Max</p>
+                                                        <p className="text-sm font-medium">{formatCurrency(salaryRange[1])}</p>
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <div><label className="text-sm font-medium">Visible Columns</label>
-                                                <div className="mt-2 space-y-2">
+
+                                            <div className="h-px bg-border" />
+
+                                            {/* Visible Columns */}
+                                            <div>
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Visible Columns</p>
+                                                    <span className="text-[10px] text-muted-foreground">
+                                                        {Object.values(visibleCols).filter(Boolean).length}/{Object.keys(visibleCols).length}
+                                                    </span>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
                                                     {Object.keys(visibleCols).map((col) => (
-                                                        <label key={col} className="flex items-center gap-2 text-sm">
-                                                            <input type="checkbox" checked={visibleCols[col]} onChange={() => setVisibleCols({ ...visibleCols, [col]: !visibleCols[col] })} className="rounded" />
-                                                            {col.charAt(0).toUpperCase() + col.slice(1).replace(/([A-Z])/g, " $1")}
+                                                        <label
+                                                            key={col}
+                                                            className="flex items-center gap-2 text-sm cursor-pointer group select-none"
+                                                        >
+                                                            <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${visibleCols[col] ? "bg-primary border-primary" : "border-border bg-background group-hover:border-primary/50"}`}
+                                                                onClick={() => setVisibleCols({ ...visibleCols, [col]: !visibleCols[col] })}
+                                                            >
+                                                                {visibleCols[col] && (
+                                                                    <svg className="h-2.5 w-2.5 text-primary-foreground" fill="none" viewBox="0 0 12 12">
+                                                                        <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                                                    </svg>
+                                                                )}
+                                                            </span>
+                                                            <span className={`text-sm ${visibleCols[col] ? "text-foreground" : "text-muted-foreground"}`}>
+                                                                {col.charAt(0).toUpperCase() + col.slice(1).replace(/([A-Z])/g, " $1")}
+                                                            </span>
                                                         </label>
                                                     ))}
                                                 </div>
                                             </div>
+                                        </div>
+
+                                        {/* Footer */}
+                                        <div className="px-5 py-4 border-t border-border">
+                                            <p className="text-xs text-muted-foreground text-center">
+                                                {filtered.length} employee{filtered.length !== 1 ? "s" : ""} match current filters
+                                            </p>
                                         </div>
                                     </SheetContent>
                                 </Sheet>
