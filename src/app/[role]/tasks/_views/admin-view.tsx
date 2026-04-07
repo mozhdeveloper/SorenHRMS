@@ -60,7 +60,7 @@ const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string; dot:
     urgent: { label: "Urgent", color: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400", dot: "bg-red-500" },
 };
 
-const BOARD_COLUMNS: TaskStatus[] = ["open", "in_progress", "submitted", "verified", "rejected"];
+const BOARD_COLUMNS: TaskStatus[] = ["open", "in_progress", "submitted", "verified", "rejected", "cancelled"];
 
 // ── Default form state ────────────────────────────────────────
 
@@ -776,7 +776,7 @@ export default function AdminTasksView() {
                     BOARD VIEW (Kanban-style columns)
                 ═══════════════════════════════════════════════ */}
                 <TabsContent value="board" className="mt-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
                         {BOARD_COLUMNS.map((status) => {
                             const cfg = STATUS_CONFIG[status];
                             const columnTasks = filteredTasks.filter((t) => t.status === status);
