@@ -89,6 +89,8 @@ export default function AdminProfileView() {
     const [editPayFreq, setEditPayFreq] = useState<string>("company");
     const [docName, setDocName] = useState("");
     const [docOpen, setDocOpen] = useState(false);
+    const [docFile, setDocFile] = useState<File | null>(null);
+    const [docUploading, setDocUploading] = useState(false);
     const empDocs = id ? getDocuments(id) : [];
 
     const openEditDialog = () => {
@@ -133,12 +135,32 @@ export default function AdminProfileView() {
         setEditOpen(false);
     };
 
-    const handleAddDoc = () => {
-        if (!docName || !id) { toast.error("Enter a document name"); return; }
-        addDocument(id, docName);
-        toast.success(`"${docName}" uploaded`);
-        setDocName("");
-        setDocOpen(false);
+    const handleAddDoc = async () => {
+        if (!id) return;
+        if (!docFile && !docName) { toast.error("Select a file or enter a document name"); return; }
+        const name = docName || (docFile?.name ?? "Document");
+        setDocUploading(true);
+        try {
+            if (docFile) {
+                const dataUrl = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.onerror = () => reject(new Error("Failed to read file"));
+                    reader.readAsDataURL(docFile);
+                });
+                addDocument(id, name, dataUrl, docFile.type);
+            } else {
+                addDocument(id, name);
+            }
+            toast.success(`"${name}" saved`);
+            setDocName("");
+            setDocFile(null);
+            setDocOpen(false);
+        } catch {
+            toast.error("Failed to read file. Please try again.");
+        } finally {
+            setDocUploading(false);
+        }
     };
 
     if (!employee) {
@@ -385,8 +407,27 @@ export default function AdminProfileView() {
                             ) : (
                                 <div className="space-y-2 mb-4">
                                     {empDocs.map((doc) => (
-                                        <div key={doc.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50">
-                                            <div className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground" /><span className="text-sm font-medium">{doc.name}</span></div>
+                                        <div key={doc.id} className="flex items-center justify-between p-3 rounded-lg border border-border/50 group">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                                                {doc.fileUrl ? (
+                                                    <a
+                                                        href={doc.fileUrl}
+                                                        download={doc.name}
+                                                        className="text-sm font-medium text-primary hover:underline truncate"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        {doc.name}
+                                                    </a>
+                                                ) : (
+                                                    <span className="text-sm font-medium truncate">{doc.name}</span>
+                                                )}
+                                                {doc.fileType && (
+                                                    <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
+                                                        {doc.fileType.split("/")[1]?.toUpperCase() ?? doc.fileType}
+                                                    </span>
+                                                )}
+                                            </div>
                                             <div className="flex items-center gap-2">
                                                 <span className="text-xs text-muted-foreground">{new Date(doc.uploadedAt).toLocaleDateString()}</span>
                                                 <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-700" onClick={() => { if (id) removeDocument(id, doc.id); }}><X className="h-3 w-3" /></Button>
@@ -395,14 +436,44 @@ export default function AdminProfileView() {
                                     ))}
                                 </div>
                             )}
-                            <Dialog open={docOpen} onOpenChange={setDocOpen}>
+                            <Dialog open={docOpen} onOpenChange={(open) => { setDocOpen(open); if (!open) { setDocName(""); setDocFile(null); } }}>
                                 <Button variant="outline" size="sm" className="mt-2" onClick={() => setDocOpen(true)}>Upload Document</Button>
                                 <DialogContent className="max-w-sm">
                                     <DialogHeader><DialogTitle>Upload Document</DialogTitle></DialogHeader>
                                     <div className="space-y-4 pt-2">
-                                        <div><label className="text-sm font-medium">Document Name</label><Input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="e.g. Resume, ID, Contract" className="mt-1" /></div>
-                                        <p className="text-xs text-muted-foreground">File upload is simulated for MVP. Only the document label is stored.</p>
-                                        <Button onClick={handleAddDoc} className="w-full">Upload</Button>
+                                        <div>
+                                            <label className="text-sm font-medium">File</label>
+                                            <div className="mt-1 flex items-center justify-center w-full">
+                                                <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-border rounded-lg cursor-pointer bg-muted/30 hover:bg-muted/50 transition-colors">
+                                                    <div className="flex flex-col items-center justify-center pt-3 pb-3">
+                                                        <FileText className="h-7 w-7 text-muted-foreground mb-1" />
+                                                        {docFile ? (
+                                                            <p className="text-sm font-medium text-foreground truncate max-w-[200px]">{docFile.name}</p>
+                                                        ) : (
+                                                            <p className="text-sm text-muted-foreground">Click to select a file</p>
+                                                        )}
+                                                        <p className="text-xs text-muted-foreground/60 mt-0.5">PDF, DOC, PNG, JPG up to 10MB</p>
+                                                    </div>
+                                                    <input
+                                                        type="file"
+                                                        className="hidden"
+                                                        accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.txt,.xlsx,.csv"
+                                                        onChange={(e) => {
+                                                            const f = e.target.files?.[0] ?? null;
+                                                            setDocFile(f);
+                                                            if (f && !docName) setDocName(f.name.replace(/\.[^.]+$/, ""));
+                                                        }}
+                                                    />
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-sm font-medium">Label <span className="text-muted-foreground font-normal">(optional)</span></label>
+                                            <Input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="e.g. Resume, Government ID" className="mt-1" />
+                                        </div>
+                                        <Button onClick={handleAddDoc} className="w-full" disabled={docUploading || (!docFile && !docName)}>
+                                            {docUploading ? "Saving..." : "Upload"}
+                                        </Button>
                                     </div>
                                 </DialogContent>
                             </Dialog>

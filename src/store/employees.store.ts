@@ -31,7 +31,7 @@ interface EmployeesState {
     approveSalaryChange: (requestId: string, reviewerId: string) => void;
     rejectSalaryChange: (requestId: string, reviewerId: string) => void;
     getSalaryHistory: (employeeId: string) => SalaryHistoryEntry[];
-    addDocument: (employeeId: string, name: string) => void;
+    addDocument: (employeeId: string, name: string, fileUrl?: string, fileType?: string) => void;
     removeDocument: (employeeId: string, docId: string) => void;
     getDocuments: (employeeId: string) => EmployeeDocument[];
     resetToSeed: () => void;
@@ -216,9 +216,9 @@ export const useEmployeesStore = create<EmployeesState>()(
                 })),
             getSalaryHistory: (employeeId) =>
                 get().salaryHistory.filter((h) => h.employeeId === employeeId),
-            addDocument: (employeeId, name) => set((s) => {
+            addDocument: (employeeId, name, fileUrl, fileType) => set((s) => {
                 const existing = s.documents[employeeId] || [];
-                return { documents: { ...s.documents, [employeeId]: [...existing, { id: `DOC-${nanoid(6)}`, name, uploadedAt: new Date().toISOString() }] } };
+                return { documents: { ...s.documents, [employeeId]: [...existing, { id: `DOC-${nanoid(6)}`, name, uploadedAt: new Date().toISOString(), fileUrl, fileType }] } };
             }),
             removeDocument: (employeeId, docId) => set((s) => {
                 const existing = s.documents[employeeId] || [];
