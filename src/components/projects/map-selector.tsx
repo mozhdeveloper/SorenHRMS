@@ -113,9 +113,10 @@ export function MapSelector({
     setGeocoding(true);
     setLocationAddress("");
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`
-      );
+      const response = await fetch(`/api/geocode?lat=${latitude}&lon=${longitude}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
       const data = await response.json();
       if (data.display_name) {
         setLocationAddress(data.display_name);
@@ -185,18 +186,16 @@ export function MapSelector({
 
     setSearching(true);
     try {
-      // Bias search to Philippines
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-          query + ", Philippines"
-        )}&limit=5&addressdetails=1`
-      );
+      const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
       const data = await response.json();
       setSearchResults(data);
       setShowResults(true);
     } catch (error) {
       console.error("Error searching location:", error);
-      toast.error("Failed to search location");
+      toast.error("Failed to search location. Please try again.");
     } finally {
       setSearching(false);
     }
