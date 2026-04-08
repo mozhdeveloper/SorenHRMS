@@ -21,6 +21,10 @@ const typeColors: Record<string, string> = {
     assignment: "bg-blue-500/15 text-blue-700 dark:text-blue-400",
     reassignment: "bg-purple-500/15 text-purple-700 dark:text-purple-400",
     absence: "bg-red-500/15 text-red-700 dark:text-red-400",
+    task_assigned: "bg-blue-500/15 text-blue-700 dark:text-blue-400",
+    task_submitted: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400",
+    task_verified: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+    task_rejected: "bg-red-500/15 text-red-700 dark:text-red-400",
     payslip_published: "bg-violet-500/15 text-violet-700 dark:text-violet-400",
     payslip_signed: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
     payslip_unsigned_reminder: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
@@ -42,6 +46,10 @@ const typeLabels: Record<string, string> = {
     assignment: "Assignment",
     reassignment: "Reassignment",
     absence: "Absence",
+    task_assigned: "Task Assigned",
+    task_submitted: "Task Submitted",
+    task_verified: "Task Verified",
+    task_rejected: "Task Rejected",
     payslip_published: "Payslip Published",
     payslip_signed: "Payslip Signed",
     payslip_unsigned_reminder: "Unsigned Reminder",
@@ -81,6 +89,7 @@ export default function NotificationsPage() {
         if (!isRead) {
             markAsRead(notificationId);
         }
+        // Always navigate if there's a link; otherwise stay on notifications page
         if (link) {
             router.push(rh(link));
         }

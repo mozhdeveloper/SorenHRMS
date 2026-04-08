@@ -72,9 +72,8 @@ export function Topbar() {
 
     const handleNotificationItemClick = (notificationId: string, link?: string) => {
         markAsRead(notificationId);
-        if (link) {
-            router.push(`${rolePrefix}${link}`);
-        }
+        // Navigate to the specific link, or fall back to the notifications page
+        router.push(link ? `${rolePrefix}${link}` : `${rolePrefix}/notifications`);
     };
 
     const formatRelativeTime = (iso: string) => {
@@ -209,14 +208,20 @@ export function Topbar() {
                                     {recentNotifications.map((notif) => (
                                         <DropdownMenuItem
                                             key={notif.id}
-                                            className="flex flex-col items-start gap-1 p-3 cursor-pointer"
-                                            onClick={() => handleNotificationItemClick(notif.id, notif.link)}
+                                            className="flex items-start gap-2 p-3 cursor-pointer focus:bg-accent"
+                                            onSelect={(e) => {
+                                                e.preventDefault();
+                                                handleNotificationItemClick(notif.id, notif.link);
+                                            }}
                                         >
-                                            <div className="font-medium text-sm line-clamp-1">{notif.subject}</div>
-                                            <div className="text-xs text-muted-foreground line-clamp-2">{notif.body}</div>
-                                            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70 mt-0.5">
-                                                <Clock className="h-2.5 w-2.5" />
-                                                {formatRelativeTime(notif.sentAt)}
+                                            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-medium text-sm line-clamp-1">{notif.subject}</div>
+                                                <div className="text-xs text-muted-foreground line-clamp-2">{notif.body}</div>
+                                                <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70 mt-0.5">
+                                                    <Clock className="h-2.5 w-2.5" />
+                                                    {formatRelativeTime(notif.sentAt)}
+                                                </div>
                                             </div>
                                         </DropdownMenuItem>
                                     ))}

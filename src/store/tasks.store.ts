@@ -122,6 +122,7 @@ export const useTasksStore = create<TasksState>()(
                         channel: "in_app",
                         subject: "New Task Assigned",
                         body: `You have been assigned: ${data.title}`,
+                        link: `/tasks/${id}`,
                     })
                 );
                 return id;
@@ -201,6 +202,7 @@ export const useTasksStore = create<TasksState>()(
                             channel: "in_app",
                             subject: "Task Verified",
                             body: `Your completion report for "${task.title}" was approved.`,
+                            link: `/tasks/${report.taskId}`,
                         })
                     );
                 }
@@ -236,6 +238,7 @@ export const useTasksStore = create<TasksState>()(
                             channel: "in_app",
                             subject: "Task Rejected",
                             body: `Your completion report for "${task.title}" was rejected: ${reason}`,
+                            link: `/tasks/${report.taskId}`,
                         })
                     );
                 }

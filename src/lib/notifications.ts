@@ -8,6 +8,7 @@ interface SendNotificationParams {
     subject: string;
     body: string;
     channel?: "email" | "sms" | "both" | "in_app";
+    link?: string;
     // Optional — used to enrich the notification toast if available
     employeeName?: string;
     employeeEmail?: string;
@@ -19,11 +20,11 @@ interface SendNotificationParams {
  * Logs to notification store and shows a toast.
  */
 export function sendNotification(params: SendNotificationParams): void {
-    const { employeeId, type, subject, body, channel = "email", employeeName, employeeEmail, employeePhone } = params;
+    const { employeeId, type, subject, body, channel = "email", link, employeeName, employeeEmail, employeePhone } = params;
 
     // Save to notification store
     const addLog = useNotificationsStore.getState().addLog;
-    addLog({ employeeId, type, subject, body, channel, recipientEmail: employeeEmail, recipientPhone: employeePhone });
+    addLog({ employeeId, type, subject, body, channel, link, recipientEmail: employeeEmail, recipientPhone: employeePhone });
 
     // Show toast simulating dispatch
     const toLabel = employeeName ?? employeeId;
