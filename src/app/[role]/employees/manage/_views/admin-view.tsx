@@ -747,7 +747,7 @@ export default function AdminEmployeesView() {
 
                     {/* Edit Employee Dialog */}
                     <Dialog open={editOpen} onOpenChange={setEditOpen}>
-                        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                             <DialogHeader><DialogTitle>Edit Employee — {editingEmp?.id}</DialogTitle></DialogHeader>
                             <div className="space-y-4 pt-2">
                                 <div className="grid grid-cols-2 gap-3">
@@ -768,7 +768,7 @@ export default function AdminEmployeesView() {
                                     </div>
                                     <div className="flex items-end"><p className="text-xs text-muted-foreground pb-2">Controls what pages and features this employee can access.</p></div>
                                 </div>
-                                <div className="grid grid-cols-3 gap-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                     <div><label className="text-sm font-medium">Work Type</label>
                                         <Select value={editWorkType} onValueChange={(v) => setEditWorkType(v as WorkType)}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="WFO">Work From Office</SelectItem><SelectItem value="WFH">Work From Home</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem><SelectItem value="ONSITE">Full Onsite</SelectItem></SelectContent></Select>
                                     </div>
