@@ -13,6 +13,7 @@ import {
 import { Bell, Trash2, Mail, MessageSquare, Settings, Check, CheckCheck, Clock } from "lucide-react";
 import { format, parseISO, formatDistanceToNow } from "date-fns";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRoleHref } from "@/lib/hooks/use-role-href";
 import { useMemo } from "react";
 
@@ -69,10 +70,21 @@ export default function NotificationsPage() {
     const { logs, clearLogs, markAsRead, markAllAsRead, getLogsByEmployee } = useNotificationsStore();
     const employees = useEmployeesStore((s) => s.employees);
     const currentUser = useAuthStore((s) => s.currentUser);
+    const router = useRouter();
 
     const { hasPermission } = useRolesStore();
     const rh = useRoleHref();
     const isAdmin = hasPermission(currentUser.role, "notifications:manage");
+
+    // Handle notification click - mark as read and navigate
+    const handleNotificationClick = (notificationId: string, link?: string, isRead?: boolean) => {
+        if (!isRead) {
+            markAsRead(notificationId);
+        }
+        if (link) {
+            router.push(rh(link));
+        }
+    };
 
     // Get current employee ID for filtering
     const currentEmployeeId = useMemo(() => {
@@ -145,7 +157,7 @@ export default function NotificationsPage() {
                             <Card
                                 key={log.id}
                                 className={`border transition-colors cursor-pointer hover:bg-muted/50 ${!log.read ? "bg-primary/5 border-primary/20" : "border-border/50"}`}
-                                onClick={() => !log.read && markAsRead(log.id)}
+                                onClick={() => handleNotificationClick(log.id, log.link, log.read)}
                             >
                                 <CardContent className="p-4">
                                     <div className="flex items-start gap-3">

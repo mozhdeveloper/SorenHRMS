@@ -15,6 +15,8 @@ import {
     Menu,
     ChevronDown,
     LogOut,
+    Clock,
+    CheckCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +34,7 @@ import { getInitials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/types";
 import { useRouter } from "next/navigation";
+import { formatDistanceToNow, parseISO } from "date-fns";
 import {
     CommandDialog,
     CommandEmpty,
@@ -50,6 +53,8 @@ export function Topbar() {
     const router = useRouter();
     const [cmdOpen, setCmdOpen] = useState(false);
     const getUnreadCountForEmployee = useNotificationsStore((s) => s.getUnreadCountForEmployee);
+    const getUnreadNotificationsForEmployee = useNotificationsStore((s) => s.getUnreadNotificationsForEmployee);
+    const markAsRead = useNotificationsStore((s) => s.markAsRead);
     const companyName = useAppearanceStore((s) => s.companyName);
     const showCompanyNameInTopbar = useAppearanceStore((s) => s.showCompanyNameInTopbar);
     const accentBadgeText = useAppearanceStore((s) => s.accentBadgeText);
@@ -61,13 +66,20 @@ export function Topbar() {
         (e) => e.profileId === currentUser.id || e.email === currentUser.email || e.name === currentUser.name
     )?.id;
     const notifCount = currentEmployeeId ? getUnreadCountForEmployee(currentEmployeeId) : 0;
+    const recentNotifications = currentEmployeeId 
+        ? getUnreadNotificationsForEmployee(currentEmployeeId).slice(0, 5) 
+        : [];
 
-    const handleNotificationClick = () => {
-        // Mark all notifications as read when clicking the bell icon
-        if (currentEmployeeId && notifCount > 0) {
-            markAllAsRead(currentEmployeeId);
+    const handleNotificationItemClick = (notificationId: string, link?: string) => {
+        markAsRead(notificationId);
+        if (link) {
+            router.push(`${rolePrefix}${link}`);
         }
-        router.push(`${rolePrefix}/notifications`);
+    };
+
+    const formatRelativeTime = (iso: string) => {
+        try { return formatDistanceToNow(parseISO(iso), { addSuffix: true }); }
+        catch { return iso; }
     };
 
     useEffect(() => {
@@ -156,15 +168,69 @@ export function Topbar() {
                         {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
                     </Button>
 
-                    {/* Notifications */}
-                    <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors" onClick={handleNotificationClick}>
-                        <Bell className="h-[1.125rem] w-[1.125rem]" />
-                        {notifCount > 0 && (
-                            <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white shadow-sm ring-2 ring-background">
-                                {notifCount > 9 ? "9+" : notifCount}
-                            </span>
-                        )}
-                    </Button>
+                    {/* Notifications Dropdown */}
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors">
+                                <Bell className="h-[1.125rem] w-[1.125rem]" />
+                                {notifCount > 0 && (
+                                    <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white shadow-sm ring-2 ring-background">
+                                        {notifCount > 9 ? "9+" : notifCount}
+                                    </span>
+                                )}
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-80">
+                            <DropdownMenuLabel className="flex items-center justify-between">
+                                <span>Notifications</span>
+                                {notifCount > 0 && currentEmployeeId && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            markAllAsRead(currentEmployeeId);
+                                        }}
+                                    >
+                                        <CheckCheck className="h-3 w-3" /> Mark all read
+                                    </Button>
+                                )}
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {recentNotifications.length === 0 ? (
+                                <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                                    <Bell className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                                    No new notifications
+                                </div>
+                            ) : (
+                                <>
+                                    {recentNotifications.map((notif) => (
+                                        <DropdownMenuItem
+                                            key={notif.id}
+                                            className="flex flex-col items-start gap-1 p-3 cursor-pointer"
+                                            onClick={() => handleNotificationItemClick(notif.id, notif.link)}
+                                        >
+                                            <div className="font-medium text-sm line-clamp-1">{notif.subject}</div>
+                                            <div className="text-xs text-muted-foreground line-clamp-2">{notif.body}</div>
+                                            <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70 mt-0.5">
+                                                <Clock className="h-2.5 w-2.5" />
+                                                {formatRelativeTime(notif.sentAt)}
+                                            </div>
+                                        </DropdownMenuItem>
+                                    ))}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                        className="justify-center text-sm text-primary font-medium"
+                                        onClick={() => router.push(`${rolePrefix}/notifications`)}
+                                    >
+                                        View all notifications
+                                    </DropdownMenuItem>
+                                </>
+                            )}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
 
                     {/* Role Switcher — only in demo mode */}
                     {process.env.NEXT_PUBLIC_DEMO_MODE === "true" && (

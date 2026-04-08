@@ -71,13 +71,42 @@ interface NotificationsState {
     updateProviderConfig: (patch: Partial<NotificationProviderConfig>) => void;
 
     // Dispatch (simulated send)
-    dispatch: (trigger: NotificationTrigger, vars: Record<string, string>, recipientEmployeeId: string, recipientEmail?: string, recipientPhone?: string) => void;
+    dispatch: (trigger: NotificationTrigger, vars: Record<string, string>, recipientEmployeeId: string, recipientEmail?: string, recipientPhone?: string, link?: string) => void;
 
     resetToSeed: () => void;
 }
 
 function renderTemplate(template: string, vars: Record<string, string>): string {
     return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
+}
+
+/** Get default navigation link based on notification type (without role prefix) */
+function getDefaultLinkForTrigger(trigger: NotificationTrigger): string {
+    const linkMap: Record<NotificationTrigger, string> = {
+        payslip_published: "/payroll",
+        payslip_signed: "/payroll",
+        payslip_unsigned_reminder: "/payroll",
+        payment_confirmed: "/payroll",
+        leave_submitted: "/leave",
+        leave_approved: "/leave",
+        leave_rejected: "/leave",
+        attendance_missing: "/attendance",
+        geofence_violation: "/attendance",
+        location_disabled: "/attendance",
+        loan_reminder: "/loans",
+        overtime_submitted: "/attendance",
+        birthday: "/dashboard",
+        contract_expiry: "/employees/manage",
+        daily_summary: "/dashboard",
+        assignment: "/projects",
+        reassignment: "/projects",
+        absence: "/attendance",
+        task_assigned: "/tasks",
+        task_submitted: "/tasks",
+        task_verified: "/tasks",
+        task_rejected: "/tasks",
+    };
+    return linkMap[trigger] || "/notifications";
 }
 
 export const useNotificationsStore = create<NotificationsState>()(
@@ -148,7 +177,7 @@ export const useNotificationsStore = create<NotificationsState>()(
                 set((s) => ({ providerConfig: { ...s.providerConfig, ...patch } })),
 
             // ─── Dispatch ──────────────────────────────
-            dispatch: (trigger, vars, recipientEmployeeId, recipientEmail, recipientPhone) => {
+            dispatch: (trigger, vars, recipientEmployeeId, recipientEmail, recipientPhone, link) => {
                 const state = get();
                 const rule = state.rules.find((r) => r.trigger === trigger);
                 if (!rule || !rule.enabled) return;
@@ -156,6 +185,9 @@ export const useNotificationsStore = create<NotificationsState>()(
                 const subject = renderTemplate(rule.subjectTemplate, vars);
                 const body = renderTemplate(rule.bodyTemplate, vars);
                 const channel = rule.channel;
+                
+                // Auto-generate link based on trigger type if not provided
+                const autoLink = link || getDefaultLinkForTrigger(trigger);
 
                 // Log different channels
                 if (channel === "email" || channel === "both") {
@@ -171,6 +203,7 @@ export const useNotificationsStore = create<NotificationsState>()(
                                 sentAt: new Date().toISOString(),
                                 status: "simulated" as const,
                                 recipientEmail,
+                                link: autoLink,
                             },
                             ...s.logs,
                         ].slice(0, 500),
@@ -190,6 +223,7 @@ export const useNotificationsStore = create<NotificationsState>()(
                                 sentAt: new Date().toISOString(),
                                 status: "simulated" as const,
                                 recipientPhone,
+                                link: autoLink,
                             },
                             ...s.logs,
                         ].slice(0, 500),
@@ -207,6 +241,7 @@ export const useNotificationsStore = create<NotificationsState>()(
                                 body,
                                 sentAt: new Date().toISOString(),
                                 status: "simulated" as const,
+                                link: autoLink,
                             },
                             ...s.logs,
                         ].slice(0, 500),

@@ -665,6 +665,8 @@ export interface NotificationLog {
   read?: boolean;
   /** ISO timestamp when the notification was read */
   readAt?: string;
+  /** Route link (without role prefix) for navigation when clicked */
+  link?: string;
 }
 
 export interface NotificationRule {
