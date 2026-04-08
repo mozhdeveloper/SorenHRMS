@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth.store";
 import { useEffect, useState } from "react";
-import { createClient } from "@/services/supabase-browser";
+import { createClient, clearAuthStorage, resetClient } from "@/services/supabase-browser";
 import { hydrateAllStores, startWriteThrough, startRealtime, stopRealtime, stopWriteThrough } from "@/services/sync.service";
 
 function AppLoadingScreen() {
@@ -39,28 +39,47 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     }, [mounted, isAuthenticated, pathname]);
 
     // Sync stores with Supabase when authenticated (handles page refresh).
-    // Also listens for Supabase SIGNED_OUT events (e.g. invalid/expired refresh
-    // token) so the app redirects to login instead of logging auth errors.
+    // Also listens for Supabase auth events to handle invalid/expired tokens.
     useEffect(() => {
         if (!mounted || !isAuthenticated) return;
 
         const supabase = createClient();
+
+        // Handle auth errors that may occur during token refresh
+        const handleAuthError = (error: Error | null) => {
+            if (!error) return;
+            const isRefreshError = 
+                error.message?.includes("Refresh Token") ||
+                (error as { code?: string }).code === "refresh_token_not_found";
+            if (isRefreshError) {
+                console.warn("[Auth] Refresh token error — logging out:", error.message);
+                clearAuthStorage();
+                resetClient();
+                stopRealtime();
+                stopWriteThrough();
+                useAuthStore.getState().logout();
+            }
+        };
+
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event: string, session: import("@supabase/supabase-js").Session | null) => {
-            // TOKEN_REFRESH_FAILED fires when the stored refresh token is
-            // expired or revoked (e.g. after a server-side sign-out or token
-            // rotation). SIGNED_OUT fires on explicit logout. Both should
-            // redirect to login cleanly.
-            // INITIAL_SESSION with a null session also means no valid auth.
+            // TOKEN_REFRESHED with no session = refresh token was invalid
+            // SIGNED_OUT = explicit logout or server-side session termination
             const shouldSignOut =
                 event === "SIGNED_OUT" ||
-                event === "TOKEN_REFRESHED" && !session ||
-                (event as string) === "TOKEN_REFRESH_FAILED";
+                (event === "TOKEN_REFRESHED" && !session);
+
             if (shouldSignOut) {
+                console.info("[Auth] Session ended:", event);
+                clearAuthStorage();
+                resetClient();
                 stopRealtime();
                 stopWriteThrough();
                 useAuthStore.getState().logout();
             }
         });
+
+        // Verify current session is valid
+        supabase.auth.getSession().then(({ error }: { error: Error | null }) => handleAuthError(error));
 
         hydrateAllStores().then(() => {
             startWriteThrough();

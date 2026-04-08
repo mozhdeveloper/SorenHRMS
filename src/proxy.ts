@@ -71,8 +71,32 @@ export async function proxy(request: NextRequest) {
   // during HMR or browser navigation doesn't crash the dev server.
   let user: { id: string } | null = null;
   try {
-    const { data } = await supabase.auth.getUser();
-    user = data.user;
+    const { data, error } = await supabase.auth.getUser();
+    
+    // Handle refresh token errors explicitly
+    if (error) {
+      const isRefreshTokenError = 
+        error.code === "refresh_token_not_found" ||
+        error.message?.includes("Refresh Token") ||
+        error.message?.includes("Invalid Refresh Token");
+      
+      if (isRefreshTokenError) {
+        console.warn("[proxy] Invalid refresh token — clearing auth cookies");
+        // Delete all sb-* auth cookies so the next request starts clean
+        for (const cookie of request.cookies.getAll()) {
+          if (cookie.name.startsWith("sb-")) {
+            supabaseResponse.cookies.delete(cookie.name);
+          }
+        }
+        user = null;
+      } else {
+        // Log other auth errors but treat as unauthenticated
+        console.warn("[proxy] Auth error:", error.message);
+        user = null;
+      }
+    } else {
+      user = data.user;
+    }
   } catch (err) {
     // Swallow network errors (ECONNRESET, AbortError) — treat as unauthenticated
     const isNetworkError =
@@ -83,7 +107,13 @@ export async function proxy(request: NextRequest) {
     // failed refresh doesn't repeat on every subsequent request.
     const isAuthError =
       err != null && typeof err === "object" && "__isAuthError" in err;
-    if (isAuthError) {
+    
+    // Check if thrown error is a refresh token error
+    const isRefreshTokenError =
+      err instanceof Error &&
+      (err.message?.includes("Refresh Token") || err.message?.includes("refresh_token_not_found"));
+    
+    if (isAuthError || isRefreshTokenError) {
       // Delete all sb-* auth cookies so the next request starts clean
       for (const cookie of request.cookies.getAll()) {
         if (cookie.name.startsWith("sb-")) {
