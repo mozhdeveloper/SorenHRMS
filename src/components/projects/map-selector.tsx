@@ -253,7 +253,7 @@ export function MapSelector({
 
         {/* Search Results Dropdown */}
         {showResults && searchResults.length > 0 && (
-          <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-[200px] overflow-y-auto">
+          <div className="absolute z-[9999] w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-[200px] overflow-y-auto">
             {searchResults.map((result) => (
               <button
                 key={result.place_id}
@@ -272,7 +272,7 @@ export function MapSelector({
         )}
 
         {showResults && searchResults.length === 0 && !searching && (
-          <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg p-3 text-sm text-muted-foreground text-center">
+          <div className="absolute z-[9999] w-full mt-1 bg-popover border border-border rounded-lg shadow-lg p-3 text-sm text-muted-foreground text-center">
             No locations found. Try a different search.
           </div>
         )}
