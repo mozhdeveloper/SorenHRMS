@@ -67,15 +67,22 @@ export async function updateEmployee(id: string, patch: Partial<Employee>): Prom
   const { data, error } = await supabase.from("employees").update(row).eq("id", id).select().single();
   if (error) return { ok: false, error: error.message };
 
-  // Sync email/name/role to profiles table if employee has a linked profile
+  // Sync fields to profiles table if employee has a linked profile
   const employee = employeeFromDb(data as Record<string, unknown>);
   const profileId = (data as { profile_id?: string }).profile_id;
-  if (profileId && (patch.email || patch.name || patch.role)) {
+  const syncFields = ['email', 'name', 'role', 'phone', 'birthday', 'address', 'emergencyContact'] as const;
+  const hasFieldToSync = syncFields.some(f => patch[f] !== undefined);
+  
+  if (profileId && hasFieldToSync) {
     const adminSupabase = await createAdminSupabaseClient();
     const profilePatch: Record<string, unknown> = {};
-    if (patch.email) profilePatch.email = patch.email;
-    if (patch.name) profilePatch.name = patch.name;
-    if (patch.role) profilePatch.role = roleToDbFormat(patch.role);
+    if (patch.email !== undefined) profilePatch.email = patch.email;
+    if (patch.name !== undefined) profilePatch.name = patch.name;
+    if (patch.role !== undefined) profilePatch.role = roleToDbFormat(patch.role);
+    if (patch.phone !== undefined) profilePatch.phone = patch.phone || null;
+    if (patch.birthday !== undefined) profilePatch.birthday = patch.birthday || null;
+    if (patch.address !== undefined) profilePatch.address = patch.address || null;
+    if (patch.emergencyContact !== undefined) profilePatch.emergency_contact = patch.emergencyContact || null;
     await adminSupabase.from("profiles").update(profilePatch).eq("id", profileId);
   }
 

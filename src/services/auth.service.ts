@@ -64,6 +64,10 @@ export async function createUserAccount(input: {
   password: string;
   department?: string;
   mustChangePassword?: boolean;
+  phone?: string;
+  birthday?: string;
+  address?: string;
+  emergencyContact?: string;
 }) {
   // Verify the caller is an authenticated admin
   const caller = await createServerSupabaseClient();
@@ -99,29 +103,51 @@ export async function createUserAccount(input: {
 
   if (error) return { ok: false as const, error: error.message };
 
-  // Update profile with additional fields + create employee record
+  // Update profile with additional fields
   if (data.user) {
     await supabase.from("profiles").update({
       name: input.name,
       role: input.role,
       department: input.department ?? "",
       must_change_password: input.mustChangePassword ?? true,
+      phone: input.phone ?? null,
+      birthday: input.birthday ?? null,
+      address: input.address ?? null,
+      emergency_contact: input.emergencyContact ?? null,
     }).eq("id", data.user.id);
 
-    // Create a linked employee record
-    const employeeId = `EMP-${Date.now()}`;
-    await supabase.from("employees").insert({
-      id: employeeId,
-      profile_id: data.user.id,
-      name: input.name,
-      email: input.email,
-      role: input.role,
-      department: input.department ?? "",
-      status: "active",
-      work_type: "WFO",
-      salary: 0,
-      join_date: new Date().toISOString().split("T")[0],
-    });
+    // Check if employee with this email already exists (created via addEmployee first)
+    const { data: existingEmployee } = await supabase
+      .from("employees")
+      .select("id")
+      .eq("email", input.email)
+      .maybeSingle();
+
+    if (existingEmployee) {
+      // Link existing employee to profile
+      await supabase.from("employees").update({
+        profile_id: data.user.id,
+      }).eq("id", existingEmployee.id);
+    } else {
+      // Create a new linked employee record
+      const employeeId = `EMP-${Date.now()}`;
+      await supabase.from("employees").insert({
+        id: employeeId,
+        profile_id: data.user.id,
+        name: input.name,
+        email: input.email,
+        role: input.role,
+        department: input.department ?? "",
+        status: "active",
+        work_type: "WFO",
+        salary: 0,
+        join_date: new Date().toISOString().split("T")[0],
+        phone: input.phone ?? null,
+        birthday: input.birthday ?? null,
+        address: input.address ?? null,
+        emergency_contact: input.emergencyContact ?? null,
+      });
+    }
   }
 
   return { ok: true as const, userId: data.user.id };

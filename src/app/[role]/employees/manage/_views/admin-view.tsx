@@ -493,7 +493,18 @@ export default function AdminEmployeesView() {
                     toast.success(`${newName} added with a login account.`);
                 }
             } else {
-                const result = await createUserAccount({ name: newName, email: newEmail, role: newSystemRole, password: newPassword, department: newDept, mustChangePassword: newMustChange });
+                const result = await createUserAccount({
+                    name: newName,
+                    email: newEmail,
+                    role: newSystemRole,
+                    password: newPassword,
+                    department: newDept,
+                    mustChangePassword: newMustChange,
+                    phone: formattedPhone,
+                    birthday: newBirthday || undefined,
+                    address: newAddress || undefined,
+                    emergencyContact: newEmergencyContact || undefined,
+                });
                 if (!result.ok) toast.warning(`Employee added but account creation failed: ${result.error}`);
                 else {
                     if (result.userId) updateEmployee(id, { profileId: result.userId });
