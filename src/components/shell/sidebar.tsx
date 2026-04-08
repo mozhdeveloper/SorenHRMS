@@ -186,7 +186,7 @@ export function Sidebar() {
     const navContent = (showLabel: boolean, isMobile: boolean) => (
         <>
             {/* Logo */}
-            <div className="flex h-16 items-center justify-between px-4">
+            <div className={cn("flex h-16 items-center px-4", showLabel || isMobile ? "justify-between" : "justify-center")}>
                 <Link href={`${rolePrefix}/dashboard`} className="flex items-center gap-2.5">
                     {logoUrl ? (
                         <img
@@ -249,6 +249,7 @@ export function Sidebar() {
                                     href={fullHref}
                                     className={cn(
                                         "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                                        !showLabel && "justify-center",
                                         isActive
                                             ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
                                             : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -294,6 +295,7 @@ export function Sidebar() {
                                             href={fullCustomHref}
                                             className={cn(
                                                 "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                                                !showLabel && "justify-center",
                                                 isActive
                                                     ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
                                                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -326,6 +328,7 @@ export function Sidebar() {
                             }}
                             className={cn(
                                 "group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                                !showLabel && "justify-center",
                                 "text-sidebar-foreground/75 hover:bg-red-500/15 hover:text-red-500"
                             )}
                         >
