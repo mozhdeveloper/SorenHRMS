@@ -18,6 +18,26 @@ export function formatDate(dateStr: string | null | undefined): string {
     }
 }
 
+/** Format an ISO timestamp as "MMM dd, yyyy · hh:mm a" e.g. "Apr 08, 2026 · 5:03 PM" */
+export function formatDateTime(dateStr: string | null | undefined): string {
+    if (!dateStr) return "—";
+    try {
+        return format(parseISO(dateStr), "MMM dd, yyyy · h:mm a");
+    } catch {
+        return dateStr;
+    }
+}
+
+/** Format an ISO timestamp as time only "h:mm a" e.g. "5:03 PM" */
+export function formatTimestamp(dateStr: string | null | undefined): string {
+    if (!dateStr) return "—";
+    try {
+        return format(parseISO(dateStr), "h:mm a");
+    } catch {
+        return dateStr;
+    }
+}
+
 export function formatTime(timeStr: string): string {
     try {
         return format(parseISO(`2000-01-01T${timeStr}`), "hh:mm a");

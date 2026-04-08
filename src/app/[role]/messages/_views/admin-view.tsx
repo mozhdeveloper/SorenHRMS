@@ -20,7 +20,7 @@ import {
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { getInitials, formatDate } from "@/lib/format";
+import { getInitials, formatDateTime, formatDate } from "@/lib/format";
 import { toast } from "sonner";
 import {
     MessageSquare, Send, Hash, Megaphone, Mail, Smartphone,
@@ -284,11 +284,11 @@ export default function AdminMessagesView() {
 
                 {/* ── Channels Tab ────────────────────────────── */}
                 <TabsContent value="channels" className="mt-4">
-                    <div className="grid lg:grid-cols-[280px_1fr] gap-4 h-[600px]">
+                    <div className="grid lg:grid-cols-[280px_1fr] gap-4" style={{ height: "calc(100vh - 300px)", minHeight: "500px", maxHeight: "700px" }}>
                         {/* Channel list */}
-                        <Card className="border border-border/50">
-                            <CardContent className="p-0">
-                                <ScrollArea className="h-[600px]">
+                        <Card className="border border-border/50 h-full">
+                            <CardContent className="p-0 h-full">
+                                <ScrollArea className="h-full">
                                     <div className="p-2 space-y-0.5">
                                         {channels.filter((c) => !c.isArchived).map((ch) => {
                                             const unread = getUnreadCount(ch.id, effectiveId);
@@ -346,7 +346,7 @@ export default function AdminMessagesView() {
                                                             <div className={`max-w-[70%] ${isMine ? "text-right" : ""}`}>
                                                                 <div className="flex items-center gap-2 mb-0.5">
                                                                     {!isMine && <span className="text-xs font-medium">{getEmpName(msg.employeeId)}</span>}
-                                                                    <span className="text-[10px] text-muted-foreground">{formatDate(msg.createdAt)}</span>
+                                                                    <span className="text-[10px] text-muted-foreground">{formatDateTime(msg.createdAt)}</span>
                                                                 </div>
                                                                 <div className={`inline-block rounded-lg px-3 py-2 text-sm ${
                                                                     isMine
