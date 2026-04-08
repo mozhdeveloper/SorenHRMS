@@ -141,12 +141,14 @@ export const useNotificationsStore = create<NotificationsState>()(
                         l.id === notificationId ? { ...l, read: true, readAt: new Date().toISOString() } : l
                     ),
                 }));
-                // Persist to DB (fire-and-forget; local state already updated)
+                // Persist to DB (fire-and-forget; local state already updated, write-through will also sync)
                 fetch("/api/notifications/mark-read", {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ notificationId }),
-                }).catch(() => { /* silently ignore network errors */ });
+                }).then((res) => {
+                    if (!res.ok) console.warn("[notifications] mark-read failed:", res.status);
+                }).catch((err) => console.warn("[notifications] mark-read error:", err));
             },
 
             markAllAsRead: (employeeId) => {
@@ -157,12 +159,14 @@ export const useNotificationsStore = create<NotificationsState>()(
                             : l
                     ),
                 }));
-                // Persist to DB (fire-and-forget; local state already updated)
+                // Persist to DB (fire-and-forget; local state already updated, write-through will also sync)
                 fetch("/api/notifications/mark-read", {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ employeeId }),
-                }).catch(() => { /* silently ignore network errors */ });
+                }).then((res) => {
+                    if (!res.ok) console.warn("[notifications] mark-all-read failed:", res.status);
+                }).catch((err) => console.warn("[notifications] mark-all-read error:", err));
             },
 
             getUnreadCountForEmployee: (employeeId) =>

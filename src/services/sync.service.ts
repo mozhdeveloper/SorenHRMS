@@ -804,10 +804,14 @@ export function startWriteThrough(): void {
   _subscriptions.push(
     useNotificationsStore.subscribe(
       (state, prevState) => {
-        // Logs (append-only)
+        // Logs: insert new logs OR upsert changed logs (e.g. read status)
         for (const log of state.logs) {
-          if (!prevState.logs.find((pl) => pl.id === log.id)) {
+          const prev = prevState.logs.find((pl) => pl.id === log.id);
+          if (!prev) {
             notificationsDb.insertLog(log);
+          } else if (JSON.stringify(prev) !== JSON.stringify(log)) {
+            // Log changed (e.g. read: false → true) — sync to DB
+            notificationsDb.upsertLog(log);
           }
         }
         // Rules

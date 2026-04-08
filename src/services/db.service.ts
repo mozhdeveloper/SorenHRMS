@@ -1057,6 +1057,10 @@ export const notificationsDb = {
     return insertRow("notification_logs", log as unknown as Record<string, unknown>);
   },
 
+  async upsertLog(log: NotificationLog): Promise<boolean> {
+    return upsertRow("notification_logs", log as unknown as Record<string, unknown>);
+  },
+
   async upsertRule(rule: NotificationRule): Promise<boolean> {
     return upsertRow("notification_rules", rule as unknown as Record<string, unknown>);
   },
