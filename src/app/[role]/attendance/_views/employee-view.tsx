@@ -32,6 +32,16 @@ import { stopWriteThrough, startWriteThrough, forceRehydrate } from "@/services/
 
 type CheckInStep = "idle" | "locating" | "location_result" | "done" | "error" | "selfie" | "qr_scan";
 
+/** Format "HH:MM" time string to "h:mm AM/PM" */
+function formatTimeAmPm(time: string | undefined): string {
+    if (!time) return "";
+    const [h, m] = time.split(":").map(Number);
+    if (isNaN(h) || isNaN(m)) return time;
+    const hour12 = h % 12 || 12;
+    const ampm = h >= 12 ? "PM" : "AM";
+    return `${hour12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
 /* ─── Live elapsed‑time display ────────────────────────────── */
 function ElapsedTimeDisplay({ checkInTime }: { checkInTime: string }) {
     const [elapsed, setElapsed] = useState("0h 0m");
@@ -523,7 +533,7 @@ export default function EmployeeView() {
                             <p className="text-xs sm:text-sm text-muted-foreground">
                                 {!todayLog?.checkIn ? "Tap below to start your day" :
                                  todayLog?.checkOut ? `${todayLog.hours}h logged today — great work!` :
-                                 `Clocked in at ${todayLog.checkIn}`}
+                                 `Clocked in at ${formatTimeAmPm(todayLog.checkIn)}`}
                             </p>
                         </div>
                         {todayLog?.checkIn && !todayLog?.checkOut && <ElapsedTimeDisplay checkInTime={todayLog.checkIn} />}

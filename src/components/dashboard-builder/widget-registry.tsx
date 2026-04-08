@@ -41,6 +41,16 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 
+/** Format "HH:MM" time string to "h:mm AM/PM" */
+function formatTimeAmPm(time: string | null | undefined): string {
+    if (!time) return "";
+    const [h, m] = time.split(":").map(Number);
+    if (isNaN(h) || isNaN(m)) return time;
+    const hour12 = h % 12 || 12;
+    const ampm = h >= 12 ? "PM" : "AM";
+    return `${hour12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
 // ─── Metadata for each widget type ──────────────────────────
 export interface WidgetMeta {
     type: WidgetType;
@@ -513,7 +523,7 @@ function MyAttendanceStatus() {
                         <p className="text-xs font-medium opacity-70">Today&apos;s Status</p>
                         <p className="text-xl font-bold capitalize mt-0.5">{displayStatus}</p>
                         {checkIn && (
-                            <p className="text-xs opacity-70 mt-0.5">In: {checkIn}{checkOut ? `  Out: ${checkOut}` : ""}</p>
+                            <p className="text-xs opacity-70 mt-0.5">In: {formatTimeAmPm(checkIn)}{checkOut ? `  Out: ${formatTimeAmPm(checkOut)}` : ""}</p>
                         )}
                     </div>
                 </div>

@@ -102,8 +102,10 @@ export async function POST(request: NextRequest) {
         const eventType = mode === "out" ? "OUT" : "IN";
         const now = new Date();
         const nowISO = now.toISOString();
-        const today = nowISO.split("T")[0];
-        const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+        // Use Asia/Manila timezone for consistent time storage (Philippines-based HRMS)
+        const manilaTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Manila" }));
+        const today = `${manilaTime.getFullYear()}-${String(manilaTime.getMonth() + 1).padStart(2, "0")}-${String(manilaTime.getDate()).padStart(2, "0")}`;
+        const timeStr = `${String(manilaTime.getHours()).padStart(2, "0")}:${String(manilaTime.getMinutes()).padStart(2, "0")}`;
         const eventId = `EVT-${nanoid(8)}`;
 
         let eventWritten = false;
@@ -170,7 +172,7 @@ export async function POST(request: NextRequest) {
                 let hours: number | null = null;
                 if (existing?.check_in) {
                     const [inH, inM] = (existing.check_in as string).split(":").map(Number);
-                    const diffMin = (now.getHours() * 60 + now.getMinutes()) - (inH * 60 + inM);
+                    const diffMin = (manilaTime.getHours() * 60 + manilaTime.getMinutes()) - (inH * 60 + inM);
                     hours = Math.round((Math.max(0, diffMin) / 60) * 10) / 10;
                 }
 

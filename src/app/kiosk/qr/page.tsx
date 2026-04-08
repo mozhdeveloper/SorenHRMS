@@ -308,6 +308,18 @@ export default function QRKioskPage() {
     // Keep startQrScannerRef in sync to avoid circular dependency with triggerFeedback
     startQrScannerRef.current = startQrScanner;
 
+    // Auto-start scanner when page loads (after PIN verification)
+    useEffect(() => {
+        const verified = sessionStorage.getItem("kiosk-pin-verified");
+        if (verified && !qrScanning && feedback === "idle") {
+            // Small delay to allow video element to mount
+            const timer = setTimeout(() => {
+                startQrScanner();
+            }, 500);
+            return () => clearTimeout(timer);
+        }
+    }, [startQrScanner, qrScanning, feedback]);
+
     // Demo QR tap (for testing without actual scanner)
     const handleDemoQrTap = async () => {
         try {
