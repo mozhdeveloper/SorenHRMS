@@ -261,6 +261,7 @@ CREATE TABLE public.employees (
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   emergency_contact text,
   address text,
+  job_title text,
   CONSTRAINT employees_pkey PRIMARY KEY (id),
   CONSTRAINT employees_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
   CONSTRAINT fk_emp_shift FOREIGN KEY (shift_id) REFERENCES public.shift_templates(id)
