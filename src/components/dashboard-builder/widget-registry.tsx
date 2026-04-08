@@ -267,11 +267,11 @@ function ChartTeamPerformance() {
             <CardContent className="pt-0">
                 <ResponsiveContainer width="100%" height={260}>
                     <LineChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                        <XAxis dataKey="month" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} stroke="hsl(var(--border))" />
-                        <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} stroke="hsl(var(--border))" />
-                        <RechartsTooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px", color: "hsl(var(--foreground))" }} itemStyle={{ color: "hsl(var(--foreground))" }} />
-                        <Line type="monotone" dataKey="productivity" stroke="hsl(var(--primary))" strokeWidth={3} dot={{ r: 4, fill: "hsl(var(--background))", stroke: "hsl(var(--primary))", strokeWidth: 2 }} activeDot={{ r: 6, fill: "hsl(var(--primary))" }} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                        <XAxis dataKey="month" tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} stroke="var(--color-border)" />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }} stroke="var(--color-border)" />
+                        <RechartsTooltip contentStyle={{ backgroundColor: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "8px", fontSize: "12px", color: "var(--color-foreground)" }} itemStyle={{ color: "var(--color-foreground)" }} />
+                        <Line type="monotone" dataKey="productivity" stroke="#ffffff" strokeWidth={3} dot={{ r: 4, fill: "var(--color-background)", stroke: "#ffffff", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#ffffff" }} />
                     </LineChart>
                 </ResponsiveContainer>
             </CardContent>
@@ -302,11 +302,11 @@ function ChartDeptDistribution() {
             <CardContent className="pt-0">
                 <ResponsiveContainer width="100%" height={260}>
                     <PieChart>
-                        <Pie data={data} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} dataKey="value" stroke="hsl(var(--background))" strokeWidth={2}>
+                        <Pie data={data} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} dataKey="value" stroke="var(--color-background)" strokeWidth={2}>
                             {data.map((_, index) => <Cell key={`cell-${index}`} fill={DONUT_COLORS[index % DONUT_COLORS.length]} />)}
                         </Pie>
-                        <Legend layout="vertical" verticalAlign="middle" align="right" wrapperStyle={{ fontSize: "12px", color: "hsl(var(--foreground))" }} />
-                        <RechartsTooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px", color: "hsl(var(--foreground))" }} itemStyle={{ color: "hsl(var(--foreground))" }} />
+                        <Legend layout="vertical" verticalAlign="middle" align="right" wrapperStyle={{ fontSize: "12px", color: "var(--color-foreground)" }} />
+                        <RechartsTooltip contentStyle={{ backgroundColor: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: "8px", fontSize: "12px", color: "var(--color-foreground)" }} itemStyle={{ color: "var(--color-foreground)" }} />
                     </PieChart>
                 </ResponsiveContainer>
             </CardContent>
