@@ -7,7 +7,6 @@ import { useAppearanceStore } from "@/store/appearance.store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { 
@@ -79,9 +78,23 @@ export default function KioskLandingPage() {
         setShowError(false);
 
         try {
-            const expectedPin = settings.adminPin || "000000";
-            
-            if (pin !== expectedPin) {
+            // Verify via DB API first, fall back to Zustand store for demo mode
+            let pinValid = false;
+            try {
+                const res = await fetch(`/api/kiosk/admin-pin?pin=${encodeURIComponent(pin)}`);
+                if (res.ok) {
+                    const data = await res.json() as { valid?: boolean };
+                    pinValid = data.valid === true;
+                } else {
+                    // API unavailable — fall back to local store
+                    pinValid = pin === (settings.adminPin || "000000");
+                }
+            } catch {
+                // Network error / demo mode — fall back to local store
+                pinValid = pin === (settings.adminPin || "000000");
+            }
+
+            if (!pinValid) {
                 setError("Incorrect PIN. Please try again.");
                 setShowError(true);
                 setPin("");
@@ -91,7 +104,7 @@ export default function KioskLandingPage() {
             }
 
             // PIN verified — store session
-            toast.success("PIN verified");
+            toast.success("Kiosk unlocked");
             sessionStorage.setItem("kiosk-pin-verified", "true");
             sessionStorage.setItem("kiosk-pin-verified-time", Date.now().toString());
             
@@ -117,12 +130,6 @@ export default function KioskLandingPage() {
             console.error("[kiosk-pin] Error:", err);
         } finally {
             setIsLoading(false);
-        }
-    };
-
-    const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === "Enter") {
-            handlePinSubmit();
         }
     };
 
@@ -163,8 +170,9 @@ export default function KioskLandingPage() {
                 <div className="absolute -bottom-48 -right-48 w-[650px] h-[650px] rounded-full blur-[150px] opacity-15 bg-primary/60" />
             </div>
 
-            {/* Top bar */}
-            <header className="absolute top-0 w-full flex items-center justify-between px-8 pt-6">
+            {/* Top bar: brand left | clock absolute center | device ID right */}
+            <header className="absolute top-0 w-full grid grid-cols-3 items-center px-8 pt-6">
+                {/* Left — brand */}
                 <div className="flex items-center gap-3">
                     {settings.showLogo && logoUrl ? (
                         <img 
@@ -181,17 +189,19 @@ export default function KioskLandingPage() {
                         </span>
                     )}
                 </div>
+                {/* Center — clock (truly centered via grid) */}
                 <div className="text-center">
                     {settings.showClock && (
-                        <p className={cn("font-mono text-4xl font-bold tracking-widest tabular-nums drop-shadow-lg", textClass)}>
+                        <p className={cn("font-mono text-5xl font-bold tracking-widest tabular-nums drop-shadow-lg", textClass)}>
                             {timeStr}
                         </p>
                     )}
                     {settings.showDate && (
-                        <p className={cn("text-xs mt-1", textSubtleClass)}>{dateStr}</p>
+                        <p className={cn("text-xs mt-1.5 tracking-wide", textSubtleClass)}>{dateStr}</p>
                     )}
                 </div>
-                <div className={cn("flex items-center gap-1.5 text-[11px] font-mono", textFaintClass)}>
+                {/* Right — device ID */}
+                <div className={cn("flex items-center justify-end gap-1.5 text-[11px] font-mono", textFaintClass)}>
                     {settings.showDeviceId && (
                         <>
                             <Shield className="h-3.5 w-3.5" />
@@ -204,28 +214,28 @@ export default function KioskLandingPage() {
             {/* PIN Entry */}
             {pageState === "pin_entry" && (
                 <Card className={cn(
-                    "relative z-10 w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95 duration-300",
+                    "relative z-10 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-300",
                     cardBgClass
                 )}>
-                    <CardHeader className="text-center pb-2">
-                        <div className="mx-auto mb-2 h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-                            <Lock className="h-8 w-8 text-primary" />
+                    <CardHeader className="text-center pb-2 pt-8">
+                        <div className="mx-auto mb-4 h-14 w-14 rounded-2xl bg-primary/15 flex items-center justify-center ring-1 ring-primary/20">
+                            <Lock className="h-7 w-7 text-primary" />
                         </div>
-                        <CardTitle className={cn("text-2xl font-bold", textClass)}>
+                        <CardTitle className={cn("text-xl font-bold tracking-tight", textClass)}>
                             Kiosk Access
                         </CardTitle>
                         <p className={cn("text-sm mt-1", textMutedClass)}>
-                            Enter your 6-digit PIN to access the attendance kiosk
+                            Enter the admin PIN to unlock the kiosk
                         </p>
                     </CardHeader>
                     
-                    <CardContent className="space-y-4 pt-4">
+                    <CardContent className="space-y-5 px-6 pb-7 pt-5">
                         <div className="space-y-2">
                             <Input
                                 type="password"
                                 inputMode="numeric"
                                 pattern="[0-9]*"
-                                maxLength={6}
+                                maxLength={settings.pinLength || 6}
                                 value={pin}
                                 onChange={(e) => {
                                     const value = e.target.value.replace(/\D/g, "");
@@ -233,21 +243,20 @@ export default function KioskLandingPage() {
                                     setError("");
                                     setShowError(false);
                                 }}
-                                onKeyPress={handleKeyPress}
+                                onKeyDown={(e) => e.key === "Enter" && pin.length >= 4 && !isLoading && handlePinSubmit()}
                                 className={cn(
-                                    "text-center text-2xl tracking-[0.5em] font-mono",
-                                    "focus:border-primary focus:ring-primary/20",
+                                    "text-center text-2xl tracking-[0.6em] font-mono h-14 rounded-xl",
                                     inputBgClass,
                                     showError && "border-red-500 focus:border-red-500"
                                 )}
-                                placeholder="000000"
+                                placeholder={"•".repeat(settings.pinLength || 6)}
                                 disabled={isLoading}
                                 autoFocus
                             />
                             
                             {showError && (
                                 <div className="flex items-center justify-center gap-2 text-red-400 text-sm animate-in fade-in slide-in-from-top-2">
-                                    <XCircle className="h-4 w-4" />
+                                    <XCircle className="h-4 w-4 shrink-0" />
                                     <span>{error}</span>
                                 </div>
                             )}
@@ -255,47 +264,45 @@ export default function KioskLandingPage() {
 
                         <Button
                             onClick={handlePinSubmit}
-                            disabled={pin.length !== 6 || isLoading}
-                            className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90"
+                            disabled={pin.length < 4 || isLoading}
+                            className="w-full h-12 text-base font-semibold rounded-xl"
                         >
                             {isLoading ? (
                                 <>
                                     <Shield className="h-4 w-4 mr-2 animate-pulse" />
-                                    Verifying...
+                                    Verifying…
                                 </>
                             ) : (
                                 <>
                                     <Lock className="h-4 w-4 mr-2" />
-                                    Access Kiosk
+                                    Unlock Kiosk
                                 </>
                             )}
                         </Button>
 
-                        <div className={cn("text-center text-xs space-y-1", textSubtleClass)}>
-                            <p>Default PIN: <Badge variant="secondary" className="text-[10px]">000000</Badge></p>
-                            <p>Change in Settings → Kiosk</p>
-                        </div>
+                        <p className={cn("text-center text-[11px]", textSubtleClass)}>
+                            Change PIN in Admin Settings → Kiosk
+                        </p>
 
-                        <div className={cn("flex items-center justify-center gap-4 pt-4 border-t", isAutoTheme ? "border-border" : "border-white/10")}>
-                            {settings.enableFace && (
-                                <div className={cn("flex items-center gap-2 text-xs", textMutedClass)}>
-                                    <ScanFace className="h-4 w-4" />
-                                    <span>Face</span>
-                                </div>
-                            )}
-                            {settings.enableQr && (
-                                <div className={cn("flex items-center gap-2 text-xs", textMutedClass)}>
-                                    <QrCode className="h-4 w-4" />
-                                    <span>QR</span>
-                                </div>
-                            )}
-                            {settings.enablePin && (
-                                <div className={cn("flex items-center gap-2 text-xs", textMutedClass)}>
-                                    <Shield className="h-4 w-4" />
-                                    <span>PIN</span>
-                                </div>
-                            )}
-                        </div>
+                        {(settings.enableFace || settings.enableQr || settings.enablePin) && (
+                            <div className={cn("flex items-center justify-center gap-5 pt-3 border-t", isAutoTheme ? "border-border" : "border-white/10")}>
+                                {settings.enableFace && (
+                                    <div className={cn("flex items-center gap-1.5 text-xs", textMutedClass)}>
+                                        <ScanFace className="h-3.5 w-3.5" /><span>Face</span>
+                                    </div>
+                                )}
+                                {settings.enableQr && (
+                                    <div className={cn("flex items-center gap-1.5 text-xs", textMutedClass)}>
+                                        <QrCode className="h-3.5 w-3.5" /><span>QR</span>
+                                    </div>
+                                )}
+                                {settings.enablePin && (
+                                    <div className={cn("flex items-center gap-1.5 text-xs", textMutedClass)}>
+                                        <Shield className="h-3.5 w-3.5" /><span>PIN</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             )}

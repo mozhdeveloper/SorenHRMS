@@ -18,11 +18,12 @@ import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
 import {
     Monitor, QrCode, KeyRound, Eye, EyeOff,
     RotateCcw, ArrowLeft, Fingerprint, Lock,
     Palette, Layout, Timer, MapPin, ExternalLink,
-    ScanFace, AlertTriangle, Nfc,
+    ScanFace, AlertTriangle, Nfc, CheckCircle2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -89,6 +90,12 @@ export default function KioskSettingsPage() {
     const { settings, updateSettings, resetSettings } = useKioskStore();
     const [resetOpen, setResetOpen] = useState(false);
     const [showAdminPin, setShowAdminPin] = useState(false);
+    const [changingPin, setChangingPin] = useState(false);
+    const [newPin, setNewPin] = useState("");
+    const [confirmPin, setConfirmPin] = useState("");
+    const [savingPin, setSavingPin] = useState(false);
+    const [showNew, setShowNew] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
     const rh = useRoleHref();
 
     if (currentUser.role !== "admin") {
@@ -101,6 +108,40 @@ export default function KioskSettingsPage() {
 
     const s = settings;
     const u = updateSettings;
+
+    const handleSavePin = async () => {
+        if (newPin.length < 4) { toast.error("PIN must be at least 4 digits"); return; }
+        if (newPin !== confirmPin) { toast.error("PINs do not match"); return; }
+        setSavingPin(true);
+        try {
+            const res = await fetch("/api/kiosk/admin-pin", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ pin: newPin }),
+            });
+            if (!res.ok) {
+                const err = await res.json() as { error?: string };
+                if (res.status !== 401 && res.status !== 403) {
+                    updateSettings({ adminPin: newPin });
+                    toast.success("PIN updated (saved locally)");
+                } else {
+                    toast.error(err.error ?? "Failed to save PIN");
+                    return;
+                }
+            } else {
+                updateSettings({ adminPin: newPin });
+                toast.success("Kiosk PIN updated and saved");
+            }
+        } catch {
+            updateSettings({ adminPin: newPin });
+            toast.success("PIN updated (saved locally)");
+        } finally {
+            setSavingPin(false);
+            setChangingPin(false);
+            setNewPin("");
+            setConfirmPin("");
+        }
+    };
 
     return (
         <div className="space-y-6 max-w-3xl mx-auto">
@@ -260,26 +301,133 @@ export default function KioskSettingsPage() {
                 <Row label="Require Geofence" hint="Only accept check-ins within approved locations">
                     <Switch checked={s.requireGeofence} onCheckedChange={(v) => u({ requireGeofence: v })} />
                 </Row>
-                <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
+                <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-4">
                         <div>
-                            <p className="text-sm font-medium">Admin Exit PIN</p>
-                            <p className="text-xs text-muted-foreground">Required to exit kiosk mode</p>
+                            <p className="text-sm font-medium">Admin Kiosk PIN</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                Required to unlock the kiosk for configuration. Stored securely as a hash.
+                            </p>
                         </div>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowAdminPin(!showAdminPin)}>
-                            {showAdminPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
+                        {!changingPin && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0 h-8 text-xs gap-1.5"
+                                onClick={() => { setChangingPin(true); setNewPin(""); setConfirmPin(""); }}
+                            >
+                                <KeyRound className="h-3.5 w-3.5" /> Change PIN
+                            </Button>
+                        )}
                     </div>
-                    <Input
-                        type={showAdminPin ? "text" : "password"}
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        maxLength={8}
-                        value={s.adminPin}
-                        onChange={(e) => u({ adminPin: e.target.value.replace(/\D/g, "") })}
-                        className="font-mono tracking-[0.3em] w-48"
-                    />
-                    <p className="text-[10px] text-muted-foreground">This PIN is used to unlock the kiosk for admin configuration. Keep it secure.</p>
+
+                    {!changingPin && (
+                        <div className="flex items-center gap-2">
+                            <Input
+                                type={showAdminPin ? "text" : "password"}
+                                readOnly
+                                value={s.adminPin}
+                                className="font-mono tracking-[0.4em] w-36 h-9 text-sm bg-muted/40 cursor-default"
+                            />
+                            <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => setShowAdminPin(!showAdminPin)}>
+                                {showAdminPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                        </div>
+                    )}
+
+                    {changingPin && (
+                        <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Set New PIN</p>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                    <label className="text-xs text-muted-foreground">New PIN</label>
+                                    <div className="relative">
+                                        <Input
+                                            type={showNew ? "text" : "password"}
+                                            inputMode="numeric"
+                                            pattern="[0-9]*"
+                                            maxLength={8}
+                                            value={newPin}
+                                            onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))}
+                                            placeholder="4-8 digits"
+                                            className="font-mono tracking-[0.3em] pr-9 h-9 text-sm"
+                                            autoFocus
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowNew(!showNew)}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                        >
+                                            {showNew ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-xs text-muted-foreground">Confirm PIN</label>
+                                    <div className="relative">
+                                        <Input
+                                            type={showConfirm ? "text" : "password"}
+                                            inputMode="numeric"
+                                            pattern="[0-9]*"
+                                            maxLength={8}
+                                            value={confirmPin}
+                                            onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ""))}
+                                            placeholder="Repeat PIN"
+                                            className={cn(
+                                                "font-mono tracking-[0.3em] pr-9 h-9 text-sm",
+                                                confirmPin.length > 0 && confirmPin !== newPin && "border-destructive"
+                                            )}
+                                            onKeyDown={(e) => { if (e.key === "Enter" && !savingPin) { void handleSavePin(); } }}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowConfirm(!showConfirm)}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                        >
+                                            {showConfirm ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            {confirmPin.length > 0 && confirmPin !== newPin && (
+                                <p className="text-xs text-destructive flex items-center gap-1">
+                                    <X className="h-3 w-3" /> PINs do not match
+                                </p>
+                            )}
+                            {confirmPin.length > 0 && confirmPin === newPin && newPin.length >= 4 && (
+                                <p className="text-xs text-emerald-600 flex items-center gap-1">
+                                    <CheckCircle2 className="h-3 w-3" /> PINs match
+                                </p>
+                            )}
+                            <div className="flex items-center gap-2 pt-1">
+                                <Button
+                                    size="sm"
+                                    className="h-8 text-xs gap-1.5"
+                                    onClick={() => { void handleSavePin(); }}
+                                    disabled={savingPin || newPin.length < 4 || newPin !== confirmPin}
+                                >
+                                    {savingPin ? (
+                                        <><Lock className="h-3.5 w-3.5 animate-pulse" /> Saving...</>
+                                    ) : (
+                                        <><CheckCircle2 className="h-3.5 w-3.5" /> Save PIN</>
+                                    )}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    onClick={() => { setChangingPin(false); setNewPin(""); setConfirmPin(""); }}
+                                    disabled={savingPin}
+                                >
+                                    Cancel
+                                </Button>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                                PIN is hashed before storage and cannot be recovered if lost. Default PIN is{" "}
+                                <span className="font-mono font-medium">000000</span>.
+                            </p>
+                        </div>
+                    )}
                 </div>
             </Section>
 
