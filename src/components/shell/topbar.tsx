@@ -282,8 +282,8 @@ export function Topbar() {
                                 </span>
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48">
-                            <DropdownMenuLabel>{currentUser.email}</DropdownMenuLabel>
+                        <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuLabel className="truncate max-w-[200px] font-normal text-muted-foreground text-xs" title={currentUser.email}>{currentUser.email}</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={() => router.push(`${rolePrefix}/settings`)}>
                                 Settings
