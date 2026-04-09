@@ -53,7 +53,8 @@ export async function updatePayslip(id: string, patch: Partial<Payslip>): Promis
 }
 
 export async function confirmPayslip(id: string): Promise<ServiceResult<Payslip>> {
-  return updatePayslip(id, { status: "confirmed", confirmedAt: new Date().toISOString() });
+  // Simplified flow: confirm is now a no-op, payslips go directly from draft to published
+  return updatePayslip(id, { status: "draft" });
 }
 
 export async function publishPayslip(id: string): Promise<ServiceResult<Payslip>> {
@@ -62,7 +63,6 @@ export async function publishPayslip(id: string): Promise<ServiceResult<Payslip>
 
 export async function recordPayment(id: string, method: string, bankRef: string): Promise<ServiceResult<Payslip>> {
   return updatePayslip(id, {
-    status: "paid",
     paidAt: new Date().toISOString(),
     paymentMethod: method,
     bankReferenceId: bankRef,
@@ -70,12 +70,11 @@ export async function recordPayment(id: string, method: string, bankRef: string)
 }
 
 export async function signPayslip(id: string, signatureDataUrl: string): Promise<ServiceResult<Payslip>> {
-  return updatePayslip(id, { signedAt: new Date().toISOString(), signatureDataUrl });
+  return updatePayslip(id, { status: "signed", signedAt: new Date().toISOString(), signatureDataUrl });
 }
 
 export async function acknowledgePayslip(id: string, acknowledgedBy: string): Promise<ServiceResult<Payslip>> {
   return updatePayslip(id, {
-    status: "acknowledged",
     acknowledgedAt: new Date().toISOString(),
     acknowledgedBy,
   });
@@ -112,11 +111,12 @@ export async function lockPayrollRun(id: string, _lockedBy: string): Promise<Ser
 }
 
 export async function publishPayrollRun(id: string): Promise<ServiceResult<PayrollRun>> {
-  return updatePayrollRun(id, { status: "published", publishedAt: new Date().toISOString() });
+  // In simplified flow, publishing is part of locking. This is now a no-op.
+  return updatePayrollRun(id, { publishedAt: new Date().toISOString() });
 }
 
 export async function markPayrollRunPaid(id: string): Promise<ServiceResult<PayrollRun>> {
-  return updatePayrollRun(id, { status: "paid", paidAt: new Date().toISOString() });
+  return updatePayrollRun(id, { status: "completed", paidAt: new Date().toISOString() });
 }
 
 // ─── Payroll Adjustments ─────────────────────────────────────────

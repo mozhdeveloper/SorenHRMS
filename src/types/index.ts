@@ -7,8 +7,57 @@ export type WorkType = "WFH" | "WFO" | "HYBRID" | "ONSITE";
 export type AttendanceStatus = "present" | "absent" | "on_leave";
 export type LeaveType = "SL" | "VL" | "EL" | "OTHER" | "ML" | "PL" | "SPL";
 export type LeaveStatus = "pending" | "approved" | "rejected";
-export type PayslipStatus = "issued" | "confirmed" | "published" | "paid" | "acknowledged";
-export type PayrollRunStatus = "draft" | "validated" | "locked" | "published" | "paid";
+export type PayslipStatus = "draft" | "published" | "signed";
+export type PayrollRunStatus = "draft" | "locked" | "completed";
+
+// ─── Custom Deduction Templates ──────────────────────────────
+export type DeductionTemplateType = "deduction" | "allowance";
+export type DeductionCalculationMode = "fixed" | "percentage" | "daily" | "hourly";
+
+export interface DeductionCondition {
+  department?: string;
+  role?: string;
+  project?: string;
+  minSalary?: number;
+  maxSalary?: number;
+}
+
+export interface DeductionTemplate {
+  id: string;
+  name: string;
+  type: DeductionTemplateType;
+  calculationMode: DeductionCalculationMode;
+  value: number;
+  conditions?: DeductionCondition;
+  appliesToAll?: boolean;
+  isActive: boolean;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface EmployeeDeductionAssignment {
+  id: string;
+  employeeId: string;
+  templateId: string;
+  overrideValue?: number;
+  effectiveFrom: string;
+  effectiveUntil?: string;
+  isActive: boolean;
+  assignedBy?: string;
+  createdAt?: string;
+  template?: DeductionTemplate;  // joined from query
+}
+
+export interface PayslipLineItem {
+  id: string;
+  payslipId: string;
+  label: string;
+  type: "earning" | "deduction" | "government" | "loan";
+  amount: number;
+  templateId?: string;
+  calculationDetail?: string;
+}
 export type LoanStatus = "active" | "settled" | "frozen" | "cancelled";
 export type OvertimeStatus = "pending" | "approved" | "rejected";
 export type AdjustmentType = "earnings" | "deduction" | "net_correction" | "statutory_correction";
@@ -32,7 +81,7 @@ export type AuditAction =
   | "salary_proposed" | "salary_approved" | "salary_rejected"
   | "leave_approved" | "leave_rejected"
   | "overtime_approved" | "overtime_rejected"
-  | "payroll_locked" | "payroll_published" | "payroll_paid"
+  | "payroll_locked" | "payroll_published" | "payroll_paid" | "payroll_completed"
   | "adjustment_created" | "adjustment_approved" | "adjustment_applied"
   | "loan_created" | "loan_frozen" | "loan_unfrozen" | "loan_settled"
   | "payment_recorded" | "employee_resigned" | "employee_deleted" | "final_pay_created"
@@ -185,6 +234,8 @@ export interface Employee {
   address?: string;
   whatsappNumber?: string;
   preferredChannel?: MessageChannel;
+  deductionExempt?: boolean;       // true = skip ALL government deductions (contract-based employees)
+  deductionExemptReason?: string;  // reason for exemption (e.g., "Contract-based", "Minimum wage earner")
   createdAt?: string;     // ISO timestamptz from DB
   updatedAt?: string;     // ISO timestamptz from DB
 }
@@ -493,6 +544,9 @@ export interface Payslip {
   acknowledgedBy?: string;
   paidConfirmedBy?: string;
   paidConfirmedAt?: string;
+  // ─── Custom Deductions ──
+  customDeductions?: number;
+  lineItemsJson?: PayslipLineItem[];
 }
 
 export interface PolicySnapshot {
@@ -518,6 +572,7 @@ export interface PayrollRun {
   payslipIds: string[];
   policySnapshot?: PolicySnapshot;
   runType?: "regular" | "adjustment" | "13th_month" | "final_pay";
+  completedAt?: string;
 }
 
 // ─── Payroll Adjustments (§5) ────────────────────────────────

@@ -76,17 +76,17 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case "confirm":
-        requiredStatus = "issued";
-        update = { status: "confirmed", confirmed_at: now };
+        // In the simplified flow, confirm is a no-op — go straight to publish
+        requiredStatus = "draft";
+        update = { status: "draft" };
         break;
       case "publish":
-        requiredStatus = "confirmed";
+        requiredStatus = "draft";
         update = { status: "published", published_at: now };
         break;
       case "record_payment":
-        requiredStatus = "published";
+        requiredStatus = "signed";
         update = {
-          status: "paid",
           paid_at: now,
           payment_method: paymentMethod || "bank_transfer",
           bank_reference_id: bankReferenceId || `REF-${Date.now()}`,

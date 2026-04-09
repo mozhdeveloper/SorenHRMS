@@ -339,8 +339,12 @@ export default function AdminTasksView() {
 
     const handleSaveGroup = () => {
         if (!groupForm.name.trim()) { toast.error("Group name is required"); return; }
+        const nameNorm = groupForm.name.trim().toLowerCase();
 
         if (editGroup) {
+            // Check duplicate name excluding current group
+            const conflict = groups.find((g) => g.id !== editGroup.id && g.name.toLowerCase() === nameNorm);
+            if (conflict) { toast.error(`A group named "${groupForm.name.trim()}" already exists`); return; }
             updateGroup(editGroup.id, {
                 name: groupForm.name.trim(),
                 description: groupForm.description.trim() || undefined,
@@ -350,6 +354,9 @@ export default function AdminTasksView() {
             toast.success("Group updated");
             setEditGroup(null);
         } else {
+            // Check duplicate name for new group
+            const conflict = groups.find((g) => g.name.toLowerCase() === nameNorm);
+            if (conflict) { toast.error(`A group named "${groupForm.name.trim()}" already exists`); return; }
             addGroup({
                 name: groupForm.name.trim(),
                 description: groupForm.description.trim() || undefined,

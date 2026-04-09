@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth.store";
 import { useEffect, useState } from "react";
-import { createClient, clearAuthStorage, resetClient } from "@/services/supabase-browser";
+import { createClient, clearAuthStorage, resetClient, safeGetSession, installAuthErrorSuppression } from "@/services/supabase-browser";
 import { hydrateAllStores, startWriteThrough, startRealtime, stopRealtime, stopWriteThrough } from "@/services/sync.service";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -151,7 +151,9 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
     const [mounted, setMounted] = useState(false);
 
+    // Install global auth error suppression on mount (once)
     useEffect(() => {
+        installAuthErrorSuppression();
         setMounted(true);
     }, []);
 
@@ -171,19 +173,13 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
         const supabase = createClient();
 
         // Handle auth errors that may occur during token refresh
-        const handleAuthError = (error: Error | null) => {
-            if (!error) return;
-            const isRefreshError = 
-                error.message?.includes("Refresh Token") ||
-                (error as { code?: string }).code === "refresh_token_not_found";
-            if (isRefreshError) {
-                console.warn("[Auth] Refresh token error — logging out:", error.message);
-                clearAuthStorage();
-                resetClient();
-                stopRealtime();
-                stopWriteThrough();
-                useAuthStore.getState().logout();
-            }
+        const handleInvalidSession = () => {
+            console.info("[Auth] Invalid session detected — logging out");
+            clearAuthStorage();
+            resetClient();
+            stopRealtime();
+            stopWriteThrough();
+            useAuthStore.getState().logout();
         };
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event: string, session: import("@supabase/supabase-js").Session | null) => {
@@ -195,20 +191,21 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
 
             if (shouldSignOut) {
                 console.info("[Auth] Session ended:", event);
-                clearAuthStorage();
-                resetClient();
-                stopRealtime();
-                stopWriteThrough();
-                useAuthStore.getState().logout();
+                handleInvalidSession();
             }
         });
 
-        // Verify current session is valid
-        supabase.auth.getSession().then(({ error }: { error: Error | null }) => handleAuthError(error));
-
-        hydrateAllStores().then(() => {
-            startWriteThrough();
-            startRealtime();
+        // Verify current session is valid using safe getter (no console errors)
+        safeGetSession(supabase).then((session) => {
+            if (!session) {
+                handleInvalidSession();
+                return;
+            }
+            // Session is valid, hydrate stores
+            hydrateAllStores().then(() => {
+                startWriteThrough();
+                startRealtime();
+            });
         });
 
         return () => {

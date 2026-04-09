@@ -184,34 +184,31 @@ describe("computeAllPHDeductions", () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe("Payslip Status Flow", () => {
-  const validStatuses = ["issued", "confirmed", "published", "paid", "acknowledged"];
+  const validStatuses = ["draft", "published", "signed"];
 
   it("should have correct status progression order", () => {
-    // issued → confirmed → published → paid → acknowledged
+    // draft → published → signed
     expect(validStatuses).toEqual([
-      "issued",
-      "confirmed",
+      "draft",
       "published",
-      "paid",
-      "acknowledged",
+      "signed",
     ]);
   });
 
-  it("should allow e-signature at issued, published, or paid status", () => {
-    const canSignStatuses = ["issued", "published", "paid"];
+  it("should allow e-signature only at published status", () => {
+    const canSignStatuses = ["published"];
     canSignStatuses.forEach((status) => {
       expect(validStatuses).toContain(status);
     });
   });
 
-  it("should only allow acknowledgement after paid and signed", () => {
-    // Acknowledgement requires: status === "paid" && signedAt exists
-    const acknowledgeCondition = (status: string, signedAt: string | null) =>
-      status === "paid" && signedAt !== null;
+  it("should only allow signing when payslip is published", () => {
+    const canSign = (status: string, signedAt: string | null) =>
+      status === "published" && signedAt === null;
 
-    expect(acknowledgeCondition("paid", "2024-01-01")).toBe(true);
-    expect(acknowledgeCondition("paid", null)).toBe(false);
-    expect(acknowledgeCondition("published", "2024-01-01")).toBe(false);
+    expect(canSign("published", null)).toBe(true);
+    expect(canSign("published", "2024-01-01")).toBe(false);
+    expect(canSign("draft", null)).toBe(false);
   });
 });
 

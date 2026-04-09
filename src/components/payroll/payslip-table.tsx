@@ -22,11 +22,9 @@ import { PayslipSignatureViewer } from "./payslip-signature-viewer";
 import { toast } from "sonner";
 
 const statusConfig: Record<string, { label: string; color: string }> = {
-    issued: { label: "Issued", color: "bg-slate-500/15 text-slate-700 dark:text-slate-400" },
-    confirmed: { label: "Confirmed", color: "bg-blue-500/15 text-blue-700 dark:text-blue-400" },
-    published: { label: "Published", color: "bg-orange-500/15 text-orange-700 dark:text-orange-400" },
-    paid: { label: "Paid", color: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" },
-    acknowledged: { label: "Acknowledged", color: "bg-teal-500/15 text-teal-700 dark:text-teal-400" },
+    draft: { label: "Draft", color: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
+    published: { label: "Published", color: "bg-violet-500/15 text-violet-700 dark:text-violet-400" },
+    signed: { label: "Signed", color: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" },
 };
 
 interface PayslipTableProps {
@@ -94,9 +92,9 @@ export function PayslipTable({ payslips, getEmpName, onMarkPaid, isAdmin }: Pays
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">All Statuses</SelectItem>
+                        <SelectItem value="draft">Draft</SelectItem>
                         <SelectItem value="published">Published</SelectItem>
-                        <SelectItem value="paid">Paid</SelectItem>
-                        <SelectItem value="acknowledged">Acknowledged</SelectItem>
+                        <SelectItem value="signed">Signed</SelectItem>
                     </SelectContent>
                 </Select>
                 <Select value={signedFilter} onValueChange={setSignedFilter}>

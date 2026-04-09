@@ -186,18 +186,18 @@ function KpiPendingOt() {
 }
 
 function KpiPayslipsIssued() {
-    const count = usePayrollStore((s) => s.payslips.filter((p) => p.status === "issued").length);
-    return <KpiCard label="Payslips Issued" value={count} icon={FileText} color="text-amber-500" bg="bg-amber-500/10" />;
+    const count = usePayrollStore((s) => s.payslips.filter((p) => p.status === "draft").length);
+    return <KpiCard label="Draft Payslips" value={count} icon={FileText} color="text-amber-500" bg="bg-amber-500/10" />;
 }
 
 function KpiConfirmedPayslips() {
-    const count = usePayrollStore((s) => s.payslips.filter((p) => p.status === "confirmed").length);
-    return <KpiCard label="Confirmed Payslips" value={count} icon={CheckCircle} color="text-blue-500" bg="bg-blue-500/10" />;
+    const count = usePayrollStore((s) => s.payslips.filter((p) => p.status === "published").length);
+    return <KpiCard label="Published Payslips" value={count} icon={CheckCircle} color="text-violet-500" bg="bg-violet-500/10" />;
 }
 
 function KpiPaidPayslips() {
-    const count = usePayrollStore((s) => s.payslips.filter((p) => p.status === "paid" || p.status === "acknowledged").length);
-    return <KpiCard label="Paid Payslips" value={count} icon={CreditCard} color="text-emerald-500" bg="bg-emerald-500/10" />;
+    const count = usePayrollStore((s) => s.payslips.filter((p) => p.status === "signed").length);
+    return <KpiCard label="Signed Payslips" value={count} icon={CreditCard} color="text-emerald-500" bg="bg-emerald-500/10" />;
 }
 
 function KpiLockedRuns() {
@@ -620,7 +620,7 @@ function MyLatestPayslip() {
     const latestPayslip = useMemo(() => {
         if (!empRecord) return undefined;
         return payslips
-            .filter((p) => p.employeeId === empRecord.id && ["published", "paid", "acknowledged", "issued", "confirmed"].includes(p.status))
+            .filter((p) => p.employeeId === empRecord.id && ["draft", "published", "signed"].includes(p.status))
             .sort((a, b) => b.issuedAt.localeCompare(a.issuedAt))[0];
     }, [payslips, empRecord]);
 

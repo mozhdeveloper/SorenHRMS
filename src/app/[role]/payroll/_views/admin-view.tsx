@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { usePayrollStore } from "@/store/payroll.store";
 import { useEmployeesStore } from "@/store/employees.store";
 import { useAuthStore } from "@/store/auth.store";
@@ -8,6 +8,7 @@ import { useRolesStore } from "@/store/roles.store";
 import { useLoansStore } from "@/store/loans.store";
 import { useLeaveStore } from "@/store/leave.store";
 import { useAttendanceStore } from "@/store/attendance.store";
+import { useDeductionsStore } from "@/store/deductions.store";
 import { PH_HOLIDAY_MULTIPLIERS } from "@/lib/constants";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,13 +30,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
-import { Plus, CheckCircle, Eye, Lock, Gift, Download, CalendarDays, RotateCcw, Send, CreditCard, FileText, Sparkles, Shield, PenTool, Search, Settings, Building2, Printer, Clock, Percent, Trash2, AlertCircle, Info, Save, Pencil, X, Loader2, FileSignature } from "lucide-react";
+import { Plus, CheckCircle, Eye, Lock, Gift, Download, CalendarDays, RotateCcw, Send, CreditCard, FileText, Sparkles, Shield, PenTool, Search, Settings, Building2, Printer, Clock, Percent, Trash2, AlertCircle, Info, Save, Pencil, X, Loader2, FileSignature, Calculator, Edit, Users } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/format";
 import { computeAllPHDeductions } from "@/lib/ph-deductions";
 import { PayslipTable } from "@/components/payroll/payslip-table";
-import { CreateAdjustmentDialog } from "@/components/payroll/create-adjustment-dialog";
-import { ComputeFinalPayDialog } from "@/components/payroll/compute-final-pay-dialog";
 import { PayScheduleSettings } from "@/components/payroll/pay-schedule-settings";
 import { GovernmentReports } from "@/components/payroll/government-reports";
 import { PrintablePayslip } from "@/components/payroll/printable-payslip";
@@ -43,8 +42,12 @@ import { format, endOfMonth, subMonths, getYear, getMonth } from "date-fns";
 import { dispatchNotification } from "@/lib/notifications";
 import { useAuditStore } from "@/store/audit.store";
 import { payrollDb } from "@/services/db.service";
-import type { DeductionType, DeductionOverrideMode } from "@/types";
+import type { DeductionType, DeductionOverrideMode, DeductionTemplate, DeductionTemplateType, DeductionCalculationMode, Department, Project } from "@/types";
 import { PH_EXEMPTION_REASONS } from "@/types";
+import { useDepartmentsStore } from "@/store/departments.store";
+import { useProjectsStore } from "@/store/projects.store";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 
 /* ═══════════════════════════════════════════════════════════════
    ADMIN / FINANCE / PAYROLL_ADMIN VIEW — Full Payroll Management
@@ -58,6 +61,8 @@ interface AdminPayrollViewProps {
 }
 
 export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewProps) {
+    const params = useParams();
+    const role = params.role as string;
     const { payslips, runs, adjustments, finalPayComputations, issuePayslip, confirmPayslip, publishPayslip, recordPayment, confirmPaidByFinance, lockRun, publishRun, markRunPaid, approveAdjustment, applyAdjustment, createAdjustment, computeFinalPay, generate13thMonth, exportBankFile, createDraftRun, validateRun, resetToSeed, paySchedule, updatePaySchedule, signatureConfig, updateSignatureConfig, deductionOverrides, setDeductionOverride, removeDeductionOverride, clearEmployeeOverrides, getDeductionOverride, getEmployeeOverrides, globalDefaults, updateGlobalDefault, getGlobalDefault, updatePayslipFromServer } = usePayrollStore();
     const employees = useEmployeesStore((s) => s.employees);
     const currentUser = useAuthStore((s) => s.currentUser);
@@ -66,6 +71,7 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
     const holidays = useAttendanceStore((s) => s.holidays);
     const attendanceLogs = useAttendanceStore((s) => s.logs);
     const { hasPermission } = useRolesStore();
+    const { templates: deductionTemplates, computeDeductionsForEmployee } = useDeductionsStore();
 
     const canIssue = hasPermission(currentUser.role, "payroll:generate");
     const canLock = hasPermission(currentUser.role, "payroll:lock");
@@ -103,8 +109,6 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
     const pageSize = 15;
 
     // ─── Dialog states ───────────────────────────────────────────
-    const [adjDialogOpen, setAdjDialogOpen] = useState(false);
-    const [fpDialogOpen, setFpDialogOpen] = useState(false);
     const [printPayslipId, setPrintPayslipId] = useState<string | null>(null);
     const [govPeriod, setGovPeriod] = useState(format(new Date(), "yyyy-MM"));
 
@@ -279,16 +283,16 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                 return Math.round(autoValue * govMultiplier);
             };
 
-            const sss = computeDeduction("sss", phDeductions.sss);
-            const ph = computeDeduction("philhealth", phDeductions.philHealth);
-            const pi = computeDeduction("pagibig", phDeductions.pagIBIG);
+            const sss = emp.deductionExempt ? 0 : computeDeduction("sss", phDeductions.sss);
+            const ph = emp.deductionExempt ? 0 : computeDeduction("philhealth", phDeductions.philHealth);
+            const pi = emp.deductionExempt ? 0 : computeDeduction("pagibig", phDeductions.pagIBIG);
             
             // BIR tax is calculated on taxable income (gross minus gov contributions)
             const taxableIncome = Math.max(0, grossPay - sss - ph - pi);
             const birOverride = getDeductionOverride(empId, "bir");
             const birGlobal = getGlobalDefault("bir");
             let tax: number;
-            if (birGlobal && !birGlobal.enabled) {
+            if (emp.deductionExempt || (birGlobal && !birGlobal.enabled)) {
                 tax = 0;
             } else {
                 const birEffective = birOverride ?? (birGlobal && birGlobal.mode !== "auto" ? { mode: birGlobal.mode, percentage: birGlobal.percentage, fixedAmount: birGlobal.fixedAmount } : null);
@@ -308,6 +312,22 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
             const totalGovDed = sss + ph + pi + tax;
 
             const dailyRate = Math.round(emp.salary / 22);
+
+            // ─── Custom deduction templates ───────────────────────────────────
+            // Skipped entirely if employee is deduction-exempt (contract-based, etc.)
+            const workDaysPerPeriod = emp.workDays?.length
+                ? Math.round(emp.workDays.length * (22 / 5))
+                : 22;
+            const customItems = emp.deductionExempt
+                ? []
+                : computeDeductionsForEmployee(empId, emp.salary, workDaysPerPeriod);
+            const customDedTotal = customItems
+                .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "deduction")
+                .reduce((sum, item) => sum + item.amount, 0);
+            const customAllowanceTotal = customItems
+                .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "allowance")
+                .reduce((sum, item) => sum + item.amount, 0);
+
             const hourlyRate = Math.round(dailyRate / 8);
             const otPay = Math.round(otHours * hourlyRate * 1.25); // PH Labor Code: OT at 125%
             const nightDiffPay = Math.round(nightDiffHours * hourlyRate * 0.10); // PH: +10% for 10PM-6AM
@@ -320,7 +340,7 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                 else { if (worked) holidayPaySupp += Math.round(dailyRate * (PH_HOLIDAY_MULTIPLIERS.special_holiday.worked - 1)); else holidayPaySupp -= dailyRate; }
             });
 
-            const netPay = grossPay + allowances + holidayPaySupp + otPay + nightDiffPay - totalGovDed - otherDed - empLoanDeduction;
+            const netPay = grossPay + allowances + holidayPaySupp + otPay + nightDiffPay + customAllowanceTotal - totalGovDed - otherDed - empLoanDeduction - customDedTotal;
             if (netPay <= 0) { toast.error(`Skipped ${emp.name}: Net pay would be ≤ 0`); return; }
 
             issuePayslip({
@@ -328,6 +348,7 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                 allowances: allowances + otPay + nightDiffPay,
                 sssDeduction: sss, philhealthDeduction: ph, pagibigDeduction: pi, taxDeduction: tax,
                 otherDeductions: otherDed, loanDeduction: empLoanDeduction,
+                customDeductions: customDedTotal,
                 holidayPay: holidayPaySupp !== 0 ? holidayPaySupp : undefined, netPay,
                 notes: formNotes || [otHours > 0 ? `OT: ${otHours}hrs (\u20B1${otPay})` : "", nightDiffHours > 0 ? `ND: ${nightDiffHours}hrs (\u20B1${nightDiffPay})` : ""].filter(Boolean).join(", ") || undefined, issuedAt: formIssuedAt,
             });
@@ -349,12 +370,12 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
     };
 
     const payrollRuns = useMemo(() => {
-        const grouped: Record<string, { date: string; count: number; totalNet: number; totalGross: number; confirmed: number }> = {};
+        const grouped: Record<string, { date: string; count: number; totalNet: number; totalGross: number; published: number }> = {};
         payslips.forEach((p) => {
             const key = p.issuedAt;
-            if (!grouped[key]) grouped[key] = { date: key, count: 0, totalNet: 0, totalGross: 0, confirmed: 0 };
+            if (!grouped[key]) grouped[key] = { date: key, count: 0, totalNet: 0, totalGross: 0, published: 0 };
             grouped[key].count++; grouped[key].totalNet += p.netPay; grouped[key].totalGross += (p.grossPay || 0);
-            if (p.status === "confirmed") grouped[key].confirmed++;
+            if (p.status === "published" || p.status === "signed") grouped[key].published++;
         });
         return Object.values(grouped).sort((a, b) => b.date.localeCompare(a.date));
     }, [payslips]);
@@ -370,11 +391,12 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
 
     // ─── Status summary counts ───────────────────────────────────
     const statusCounts = useMemo(() => {
-        const counts = { issued: 0, confirmed: 0, published: 0, paid: 0, acknowledged: 0, signed: 0, publishedSigned: 0 };
+        const counts = { draft: 0, published: 0, signed: 0, publishedUnsigned: 0 };
         payslips.forEach((p) => {
-            if (p.status in counts) counts[p.status as keyof typeof counts]++;
-            if (p.signedAt) counts.signed++;
-            if (p.status === "published" && p.signedAt) counts.publishedSigned++;
+            if (p.status === "draft") counts.draft++;
+            if (p.status === "published") counts.published++;
+            if (p.status === "signed") counts.signed++;
+            if (p.status === "published" && !p.signedAt) counts.publishedUnsigned++;
         });
         return counts;
     }, [payslips]);
@@ -382,39 +404,22 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
     // ─── Batch handlers ──────────────────────────────────────────
     // Use store-first pattern (matching single-action buttons).
     // The write-through subscriber in sync.service.ts persists to Supabase.
-    const handleBatchConfirm = useCallback(() => {
-        const issuedSlips = filteredPayslips.filter((p) => p.status === "issued" && !isRunLocked(p.issuedAt));
-        if (issuedSlips.length === 0) { toast.error("No issued payslips to confirm"); return; }
-        setBatchProcessing(true);
-        issuedSlips.forEach((ps) => {
-            confirmPayslip(ps.id);
-            useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payroll_locked", performedBy: currentUser.id });
-        });
-        toast.success(`Confirmed ${issuedSlips.length} payslip${issuedSlips.length > 1 ? "s" : ""}`);
-        setBatchProcessing(false);
-    }, [filteredPayslips, confirmPayslip, currentUser.id]);
-
     const handleBatchPublish = useCallback(() => {
-        const confirmedSlips = filteredPayslips.filter((p) => p.status === "confirmed");
-        if (confirmedSlips.length === 0) { toast.error("No confirmed payslips to publish"); return; }
+        const draftSlips = filteredPayslips.filter((p) => p.status === "draft");
+        if (draftSlips.length === 0) { toast.error("No draft payslips to publish"); return; }
         setBatchProcessing(true);
-        confirmedSlips.forEach((ps) => {
+        draftSlips.forEach((ps) => {
             publishPayslip(ps.id);
             useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payroll_published", performedBy: currentUser.id });
             dispatchNotification("payslip_published", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}` }, ps.employeeId);
         });
-        toast.success(`Published ${confirmedSlips.length} payslip${confirmedSlips.length > 1 ? "s" : ""}`);
+        toast.success(`Published ${draftSlips.length} payslip${draftSlips.length > 1 ? "s" : ""}`);
         setBatchProcessing(false);
     }, [filteredPayslips, publishPayslip, currentUser.id]);
 
     const handleBatchRecordPayment = useCallback(() => {
-        const publishedSlips = filteredPayslips.filter((p) => p.status === "published");
-        if (publishedSlips.length === 0) { toast.error("No published payslips to mark paid"); return; }
-        // PH DOLE standard: employee must sign before payment can be recorded
-        const signedSlips = publishedSlips.filter((p) => !!p.signedAt);
-        const unsignedCount = publishedSlips.length - signedSlips.length;
-        if (signedSlips.length === 0) { toast.error(`All ${unsignedCount} published payslip${unsignedCount > 1 ? "s" : ""} require employee signature before payment can be recorded.`); return; }
-        if (unsignedCount > 0) toast.warning(`Skipping ${unsignedCount} unsigned payslip${unsignedCount > 1 ? "s" : ""} — employee signature required first.`);
+        const signedSlips = filteredPayslips.filter((p) => p.status === "signed");
+        if (signedSlips.length === 0) { toast.error("No signed payslips to record payment for"); return; }
         setBatchProcessing(true);
         signedSlips.forEach((ps) => {
             recordPayment(ps.id, "bank_transfer", `BATCH-REF-${Date.now()}-${ps.id}`);
@@ -425,11 +430,11 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
         setBatchProcessing(false);
     }, [filteredPayslips, recordPayment, currentUser.id]);
 
-    /** Recompute government deductions on issued/confirmed payslips using current Tax Settings. */
+    /** Recompute government + custom deductions on draft payslips using current Tax Settings. */
     const handleBatchRecomputeDeductions = useCallback(() => {
-        // Only recompute payslips that haven't been locked yet (issued or confirmed)
-        const eligible = filteredPayslips.filter((p) => p.status === "issued" || p.status === "confirmed");
-        if (eligible.length === 0) { toast.error("No unlocked payslips to recompute"); return; }
+        // Only recompute payslips that haven't been published yet (draft only)
+        const eligible = filteredPayslips.filter((p) => p.status === "draft");
+        if (eligible.length === 0) { toast.error("No draft payslips to recompute"); return; }
         setBatchProcessing(true);
         let updated = 0;
         eligible.forEach((ps) => {
@@ -450,14 +455,15 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                 return Math.round(autoValue);
             };
 
-            const sss = computeDeduction("sss", phDeductions.sss);
-            const ph = computeDeduction("philhealth", phDeductions.philHealth);
-            const pi = computeDeduction("pagibig", phDeductions.pagIBIG);
+            // Deduction-exempt employees (contract-based, etc.) get zero gov deductions
+            const sss = emp.deductionExempt ? 0 : computeDeduction("sss", phDeductions.sss);
+            const ph = emp.deductionExempt ? 0 : computeDeduction("philhealth", phDeductions.philHealth);
+            const pi = emp.deductionExempt ? 0 : computeDeduction("pagibig", phDeductions.pagIBIG);
             const taxableIncome = Math.max(0, ps.grossPay - sss - ph - pi);
             const birOverride = getDeductionOverride(ps.employeeId, "bir");
             const birGlobal = getGlobalDefault("bir");
             let tax: number;
-            if (birGlobal && !birGlobal.enabled) {
+            if (emp.deductionExempt || (birGlobal && !birGlobal.enabled)) {
                 tax = 0;
             } else {
                 const birEffective = birOverride ?? (birGlobal && birGlobal.mode !== "auto" ? { mode: birGlobal.mode, percentage: birGlobal.percentage, fixedAmount: birGlobal.fixedAmount } : null);
@@ -470,8 +476,23 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
 
             const totalGovDed = sss + ph + pi + tax;
             const oldGovDed = ps.sssDeduction + ps.philhealthDeduction + ps.pagibigDeduction + ps.taxDeduction;
-            const netPayDiff = oldGovDed - totalGovDed; // positive if deductions decreased
-            const newNetPay = ps.netPay + netPayDiff;
+
+            // Re-apply custom deduction templates
+            const workDaysPerPeriod = emp.workDays?.length ? Math.round(emp.workDays.length * (22 / 5)) : 22;
+            const customItems = emp.deductionExempt
+                ? []
+                : computeDeductionsForEmployee(ps.employeeId, emp.salary, workDaysPerPeriod);
+            const newCustomDed = customItems
+                .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "deduction")
+                .reduce((sum, item) => sum + item.amount, 0);
+            const newCustomAllowance = customItems
+                .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "allowance")
+                .reduce((sum, item) => sum + item.amount, 0);
+            const oldCustomDed = ps.customDeductions ?? 0;
+
+            // netPay diff: old total deductions - new total deductions + new allowances - old allowances
+            const netPayDiff = (oldGovDed - totalGovDed) + (oldCustomDed - newCustomDed) + newCustomAllowance;
+            const newNetPay = Math.max(0, ps.netPay + netPayDiff);
 
             updatePayslipFromServer({
                 id: ps.id,
@@ -479,13 +500,14 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                 philhealthDeduction: ph,
                 pagibigDeduction: pi,
                 taxDeduction: tax,
+                customDeductions: newCustomDed,
                 netPay: newNetPay,
             });
             updated++;
         });
         toast.success(`Recomputed deductions for ${updated} payslip${updated > 1 ? "s" : ""}`);
         setBatchProcessing(false);
-    }, [filteredPayslips, employees, getDeductionOverride, getGlobalDefault, updatePayslipFromServer]);
+    }, [filteredPayslips, employees, getDeductionOverride, getGlobalDefault, updatePayslipFromServer, computeDeductionsForEmployee, deductionTemplates]);
 
     return (
         <div className="space-y-6">
@@ -512,6 +534,11 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                     </AlertDialog>
                     )}
                     {canIssue && (<>
+                        <Link href={`/${role}/payroll/settings`}>
+                            <Button variant="outline" size="sm" className="gap-1.5">
+                                <Settings className="h-4 w-4" /> <span className="hidden sm:inline">Payroll Settings</span>
+                            </Button>
+                        </Link>
                         <Button variant="outline" size="sm" className="gap-1.5" onClick={handle13thMonth}>
                             <Gift className="h-4 w-4" /> <span className="hidden sm:inline">13th Month</span>
                         </Button>
@@ -648,8 +675,7 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                     <TabsTrigger value="payslips">Payslips</TabsTrigger>
                     <TabsTrigger value="runs">Payroll Runs</TabsTrigger>
                     {canIssue && <TabsTrigger value="management" className="gap-1.5"><PenTool className="h-3.5 w-3.5" /> Management</TabsTrigger>}
-                    {canIssue && <TabsTrigger value="adjustments">Adjustments</TabsTrigger>}
-                    {canIssue && <TabsTrigger value="final-pay">Final Pay</TabsTrigger>}
+                    {canIssue && <TabsTrigger value="deductions" className="gap-1.5"><Calculator className="h-3.5 w-3.5" /> Deduction/Allowance</TabsTrigger>}
                     {canIssue && <TabsTrigger value="settings" className="gap-1.5"><Settings className="h-3.5 w-3.5" /> Pay Schedule</TabsTrigger>}
                     {canIssue && <TabsTrigger value="tax-settings" className="gap-1.5"><Percent className="h-3.5 w-3.5" /> Tax Settings</TabsTrigger>}
                     {canIssue && <TabsTrigger value="gov-reports" className="gap-1.5"><Building2 className="h-3.5 w-3.5" /> Gov Reports</TabsTrigger>}
@@ -658,13 +684,10 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                 {/* Payslips Tab */}
                 <TabsContent value="payslips" className="mt-4 space-y-3">
                     {/* Status Summary Cards */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {([
-                            { key: "issued", label: "Issued", color: "text-amber-600 dark:text-amber-400" },
-                            { key: "confirmed", label: "Confirmed", color: "text-cyan-600 dark:text-cyan-400" },
+                            { key: "draft", label: "Draft", color: "text-amber-600 dark:text-amber-400" },
                             { key: "published", label: "Published", color: "text-violet-600 dark:text-violet-400" },
-                            { key: "paid", label: "Paid", color: "text-blue-600 dark:text-blue-400" },
-                            { key: "acknowledged", label: "Acknowledged", color: "text-emerald-600 dark:text-emerald-400" },
                             { key: "signed", label: "Signed", color: "text-emerald-600 dark:text-emerald-400" },
                         ] as const).map(({ key, label, color }) => (
                             <Card key={key} className="border border-border/50">
@@ -681,37 +704,28 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                         <div className="flex flex-wrap items-center gap-2 p-3 bg-muted/30 border border-border/50 rounded-lg">
                             <span className="text-xs font-medium text-muted-foreground mr-2">Batch Actions:</span>
                             <Button
-                                variant="outline" size="sm" className="h-8 text-xs gap-1.5 text-cyan-600 border-cyan-200 dark:border-cyan-800 hover:bg-cyan-50 dark:hover:bg-cyan-950/30"
-                                disabled={batchProcessing || statusCounts.issued === 0}
-                                onClick={handleBatchConfirm}
-                            >
-                                <CheckCircle className="h-3.5 w-3.5" />
-                                Confirm All Issued ({statusCounts.issued})
-                            </Button>
-                            <Button
                                 variant="outline" size="sm" className="h-8 text-xs gap-1.5 text-violet-600 border-violet-200 dark:border-violet-800 hover:bg-violet-50 dark:hover:bg-violet-950/30"
-                                disabled={batchProcessing || statusCounts.confirmed === 0}
+                                disabled={batchProcessing || statusCounts.draft === 0}
                                 onClick={handleBatchPublish}
                             >
                                 <Send className="h-3.5 w-3.5" />
-                                Publish All Confirmed ({statusCounts.confirmed})
+                                Publish All Draft ({statusCounts.draft})
                             </Button>
                             <Button
                                 variant="outline" size="sm" className="h-8 text-xs gap-1.5 text-blue-600 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-950/30"
-                                disabled={batchProcessing || statusCounts.publishedSigned === 0}
+                                disabled={batchProcessing || statusCounts.signed === 0}
                                 onClick={handleBatchRecordPayment}
-                                title={statusCounts.published > statusCounts.publishedSigned ? `${statusCounts.published - statusCounts.publishedSigned} payslip(s) still awaiting employee signature` : undefined}
                             >
                                 <CreditCard className="h-3.5 w-3.5" />
-                                Record Payment ({statusCounts.publishedSigned}/{statusCounts.published} signed)
+                                Record Payment ({statusCounts.signed} signed)
                             </Button>
                             <Button
                                 variant="outline" size="sm" className="h-8 text-xs gap-1.5 text-emerald-600 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
-                                disabled={batchProcessing || (statusCounts.issued + statusCounts.confirmed) === 0}
+                                disabled={batchProcessing || statusCounts.draft === 0}
                                 onClick={handleBatchRecomputeDeductions}
                             >
                                 <Sparkles className="h-3.5 w-3.5" />
-                                Apply Deductions ({statusCounts.issued + statusCounts.confirmed})
+                                Apply Deductions ({statusCounts.draft})
                             </Button>
                             {batchProcessing && <span className="text-xs text-muted-foreground animate-pulse ml-2">Processing...</span>}
                         </div>
@@ -727,11 +741,9 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                             <SelectTrigger className="w-[150px] h-9 text-xs"><SelectValue placeholder="Status" /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">All Statuses</SelectItem>
-                                <SelectItem value="issued">Issued</SelectItem>
-                                <SelectItem value="confirmed">Confirmed</SelectItem>
+                                <SelectItem value="draft">Draft</SelectItem>
                                 <SelectItem value="published">Published</SelectItem>
-                                <SelectItem value="paid">Paid</SelectItem>
-                                <SelectItem value="acknowledged">Acknowledged</SelectItem>
+                                <SelectItem value="signed">Signed</SelectItem>
                             </SelectContent>
                         </Select>
                         <p className="text-xs text-muted-foreground self-center whitespace-nowrap">{filteredPayslips.length} result{filteredPayslips.length !== 1 ? "s" : ""}</p>
@@ -757,32 +769,25 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                                 <TableCell className="text-sm font-medium">₱{ps.netPay.toLocaleString()}</TableCell>
                                                 <TableCell>
                                                     <Badge variant="secondary" className={`text-[10px] ${
-                                                        ps.status === "acknowledged" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
-                                                        ps.status === "paid" ? "bg-blue-500/15 text-blue-700 dark:text-blue-400" :
+                                                        ps.status === "signed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
                                                         ps.status === "published" ? "bg-violet-500/15 text-violet-700 dark:text-violet-400" :
-                                                        ps.status === "confirmed" ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400" :
-                                                        ps.status === "issued" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+                                                        ps.status === "draft" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
                                                         "bg-slate-500/15 text-slate-700 dark:text-slate-400"
                                                     }`}>{ps.status}</Badge>
                                                 </TableCell>
                                                 <TableCell>
-                                                    {ps.acknowledgedAt ? (
-                                                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400" title={`Acknowledged ${new Date(ps.acknowledgedAt).toLocaleString()}`}>
-                                                            <CheckCircle className="h-3.5 w-3.5" />
-                                                            <span className="text-[10px] font-medium">Acknowledged</span>
-                                                        </span>
-                                                    ) : ps.signedAt ? (
-                                                        <button onClick={() => setViewSlip(ps.id)} className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline" title={`Signed ${new Date(ps.signedAt).toLocaleString()}`}>
+                                                    {ps.status === "signed" ? (
+                                                        <button onClick={() => setViewSlip(ps.id)} className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:underline" title={`Signed ${ps.signedAt ? new Date(ps.signedAt).toLocaleString() : ""}`}>
                                                             <PenTool className="h-3.5 w-3.5" />
                                                             <span className="text-[10px] font-medium">View Sig</span>
                                                         </button>
                                                     ) : ps.status === "published" ? (
-                                                        <span className="text-[10px] text-red-600 dark:text-red-400 flex items-center gap-1 font-semibold" title="Employee must sign payslip before payment can be recorded (PH DOLE requirement)">
+                                                        <span className="text-[10px] text-red-600 dark:text-red-400 flex items-center gap-1 font-semibold" title="Employee must sign payslip (PH DOLE requirement)">
                                                             <FileSignature className="h-3 w-3" /> Awaiting Signature
                                                         </span>
-                                                    ) : ["issued", "confirmed", "paid"].includes(ps.status) ? (
+                                                    ) : ps.status === "draft" ? (
                                                         <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                                                            <Clock className="h-3 w-3" /> Pending
+                                                            <Clock className="h-3 w-3" /> Pending Publish
                                                         </span>
                                                     ) : (
                                                         <span className="text-[10px] text-muted-foreground">—</span>
@@ -792,10 +797,7 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                                     <div className="flex items-center gap-1">
                                                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewSlip(ps.id)}><Eye className="h-3.5 w-3.5" /></Button>
                                                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" title="Print" onClick={() => setPrintPayslipId(ps.id)}><Printer className="h-3.5 w-3.5" /></Button>
-                                                        {canIssue && ps.status === "issued" && !isRunLocked(ps.issuedAt) && (
-                                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" onClick={() => { confirmPayslip(ps.id); useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payroll_locked", performedBy: currentUser.id }); toast.success("Payslip confirmed"); }}><CheckCircle className="h-3.5 w-3.5" /></Button>
-                                                        )}
-                                                        {canIssue && ps.status === "confirmed" && (
+                                                        {canIssue && ps.status === "draft" && (
                                                             <Button variant="ghost" size="icon" className="h-7 w-7 text-violet-600" title="Publish" onClick={() => {
                                                                 publishPayslip(ps.id);
                                                                 useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payroll_published", performedBy: currentUser.id });
@@ -803,19 +805,18 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                                                 toast.success("Published");
                                                             }}><Send className="h-3.5 w-3.5" /></Button>
                                                         )}
-                                                        {canIssue && ps.status === "published" && (
-                                                            ps.signedAt ? (
-                                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600" title="Record Payment" onClick={() => {
-                                                                    recordPayment(ps.id, "bank_transfer", `REF-${Date.now()}`);
-                                                                    useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payment_recorded", performedBy: currentUser.id });
-                                                                    dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}` }, ps.employeeId);
-                                                                    toast.success("Payment recorded");
-                                                                }}><CreditCard className="h-3.5 w-3.5" /></Button>
-                                                            ) : (
-                                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground/40 cursor-not-allowed" title="Employee must sign payslip before payment can be recorded (PH DOLE requirement)" disabled>
-                                                                    <CreditCard className="h-3.5 w-3.5" />
-                                                                </Button>
-                                                            )
+                                                        {canIssue && ps.status === "signed" && (
+                                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600" title="Record Payment" onClick={() => {
+                                                                recordPayment(ps.id, "bank_transfer", `REF-${Date.now()}`);
+                                                                useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payment_recorded", performedBy: currentUser.id });
+                                                                dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}` }, ps.employeeId);
+                                                                toast.success("Payment recorded");
+                                                            }}><CreditCard className="h-3.5 w-3.5" /></Button>
+                                                        )}
+                                                        {canIssue && ps.status === "published" && !ps.signedAt && (
+                                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground/40 cursor-not-allowed" title="Awaiting employee signature" disabled>
+                                                                <CreditCard className="h-3.5 w-3.5" />
+                                                            </Button>
                                                         )}
                                                     </div>
                                                 </TableCell>
@@ -865,10 +866,8 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                                     <TableCell className="text-sm font-medium">₱{run.totalNet.toLocaleString()}</TableCell>
                                                     <TableCell>
                                                         <Badge variant="secondary" className={`text-[10px] ${
-                                                            runStatus === "paid" ? "bg-blue-500/15 text-blue-700 dark:text-blue-400" :
-                                                            runStatus === "published" ? "bg-violet-500/15 text-violet-700 dark:text-violet-400" :
+                                                            runStatus === "completed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
                                                             runStatus === "locked" ? "bg-red-500/15 text-red-700 dark:text-red-400" :
-                                                            runStatus === "validated" ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400" :
                                                             runStatus === "draft" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
                                                             "bg-slate-500/15 text-slate-700 dark:text-slate-400"
                                                         }`}>{locked && <Lock className="h-3 w-3 mr-1 inline" />}{runStatus}</Badge>
@@ -878,19 +877,17 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                                             <div className="flex items-center gap-1">
                                                                 <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500" title="Export bank file" onClick={() => exportBankFile(run.date, employees.map((e) => ({ id: e.id, name: e.name, salary: e.salary })))}><Download className="h-3.5 w-3.5" /></Button>
                                                                 {!runObj && <Button variant="ghost" size="sm" className="h-7 text-[10px] text-amber-600" onClick={() => { createDraftRun(run.date, payslips.filter((p) => p.issuedAt === run.date).map((p) => p.id)); toast.success("Draft created"); }}>Draft</Button>}
-                                                                {runObj && runStatus === "draft" && <Button variant="ghost" size="sm" className="h-7 text-[10px] text-cyan-600" onClick={() => { validateRun(run.date); toast.success("Validated"); }}>Validate</Button>}
                                                                 {runObj && !locked && (
                                                                     <AlertDialog>
                                                                         <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" title="Lock"><Lock className="h-3.5 w-3.5" /></Button></AlertDialogTrigger>
                                                                         <AlertDialogContent>
-                                                                            <AlertDialogHeader><AlertDialogTitle>Lock Payroll Run?</AlertDialogTitle><AlertDialogDescription>This will permanently lock <strong>{run.date}</strong>.</AlertDialogDescription></AlertDialogHeader>
-                                                                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => { lockRun(run.date, currentUser.id); useAuditStore.getState().log({ entityType: "payroll_run", entityId: run.date, action: "payroll_locked", performedBy: currentUser.id }); toast.success("Run locked"); }}>Lock</AlertDialogAction></AlertDialogFooter>
+                                                                            <AlertDialogHeader><AlertDialogTitle>Lock Payroll Run?</AlertDialogTitle><AlertDialogDescription>This will permanently lock <strong>{run.date}</strong> and publish all draft payslips in this run.</AlertDialogDescription></AlertDialogHeader>
+                                                                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => { lockRun(run.date, currentUser.id); useAuditStore.getState().log({ entityType: "payroll_run", entityId: run.date, action: "payroll_locked", performedBy: currentUser.id }); toast.success("Run locked & payslips published"); }}>Lock</AlertDialogAction></AlertDialogFooter>
                                                                         </AlertDialogContent>
                                                                     </AlertDialog>
                                                                 )}
                                                                 {locked && <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500" title="Policy snapshot" onClick={() => setSnapshotRunDate(run.date)}><Shield className="h-3.5 w-3.5" /></Button>}
-                                                                {locked && runStatus === "locked" && <Button variant="ghost" size="icon" className="h-7 w-7 text-violet-600" title="Publish" onClick={() => { publishRun(run.date); useAuditStore.getState().log({ entityType: "payroll_run", entityId: run.date, action: "payroll_published", performedBy: currentUser.id }); toast.success("Published"); }}><Send className="h-3.5 w-3.5" /></Button>}
-                                                                {runStatus === "published" && <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600" title="Mark paid" onClick={() => { markRunPaid(run.date); useAuditStore.getState().log({ entityType: "payroll_run", entityId: run.date, action: "payroll_paid", performedBy: currentUser.id }); toast.success("Marked paid"); }}><CreditCard className="h-3.5 w-3.5" /></Button>}
+                                                                {locked && runStatus === "locked" && <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" title="Mark Completed" onClick={() => { markRunPaid(run.date); useAuditStore.getState().log({ entityType: "payroll_run", entityId: run.date, action: "payroll_completed", performedBy: currentUser.id }); toast.success("Run completed"); }}><CheckCircle className="h-3.5 w-3.5" /></Button>}
                                                             </div>
                                                         </TableCell>
                                                     )}
@@ -921,111 +918,10 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                     </TabsContent>
                 )}
 
-                {/* Adjustments Tab */}
+                {/* Custom Deductions & Allowance Templates Tab */}
                 {canIssue && (
-                    <TabsContent value="adjustments" className="mt-4">
-                        <Card className="border border-border/50">
-                            <CardContent className="p-4 space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <p className="text-sm font-medium">Prior-Period Adjustments</p>
-                                    <div className="flex items-center gap-2">
-                                        <Badge variant="secondary" className="text-[10px]">{adjustments.length} total</Badge>
-                                        <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setAdjDialogOpen(true)}><Plus className="h-3.5 w-3.5" /> Create Adjustment</Button>
-                                    </div>
-                                </div>
-                                {adjustments.length === 0 ? (
-                                    <p className="text-sm text-muted-foreground text-center py-6">No adjustments yet.</p>
-                                ) : (
-                                    <div className="overflow-x-auto">
-                                        <Table>
-                                            <TableHeader><TableRow>
-                                                <TableHead className="text-xs">ID</TableHead><TableHead className="text-xs">Employee</TableHead>
-                                                <TableHead className="text-xs">Type</TableHead><TableHead className="text-xs">Amount</TableHead>
-                                                <TableHead className="text-xs">Reason</TableHead><TableHead className="text-xs">Status</TableHead><TableHead className="text-xs w-20">Actions</TableHead>
-                                            </TableRow></TableHeader>
-                                            <TableBody>
-                                                {adjustments.map((adj) => (
-                                                    <TableRow key={adj.id}>
-                                                        <TableCell className="text-xs font-mono">{adj.id}</TableCell>
-                                                        <TableCell className="text-sm">{getEmpName(adj.employeeId)}</TableCell>
-                                                        <TableCell className="text-xs capitalize">{adj.adjustmentType.replace("_", " ")}</TableCell>
-                                                        <TableCell className="text-sm font-medium">{adj.amount >= 0 ? "+" : ""}₱{adj.amount.toLocaleString()}</TableCell>
-                                                        <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">{adj.reason}</TableCell>
-                                                        <TableCell>
-                                                            <Badge variant="secondary" className={`text-[10px] ${
-                                                                adj.status === "applied" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
-                                                                adj.status === "approved" ? "bg-blue-500/15 text-blue-700 dark:text-blue-400" :
-                                                                adj.status === "rejected" ? "bg-red-500/15 text-red-700 dark:text-red-400" :
-                                                                "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-                                                            }`}>{adj.status}</Badge>
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <div className="flex items-center gap-1">
-                                                                {adj.status === "pending" && <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" title="Approve" onClick={() => { approveAdjustment(adj.id, currentUser.id); toast.success("Approved"); }}><CheckCircle className="h-3.5 w-3.5" /></Button>}
-                                                                {adj.status === "approved" && <Button variant="ghost" size="icon" className="h-7 w-7 text-violet-600" title="Apply" onClick={() => { applyAdjustment(adj.id, `RUN-${new Date().toISOString().split("T")[0]}`); toast.success("Applied"); }}><FileText className="h-3.5 w-3.5" /></Button>}
-                                                            </div>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-                )}
-
-                {/* Final Pay Tab */}
-                {canIssue && (
-                    <TabsContent value="final-pay" className="mt-4">
-                        <Card className="border border-border/50">
-                            <CardContent className="p-4 space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <p className="text-sm font-medium">Final Pay Computations</p>
-                                    <div className="flex items-center gap-2">
-                                        <Badge variant="secondary" className="text-[10px]">{finalPayComputations?.length || 0} total</Badge>
-                                        <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setFpDialogOpen(true)}><Plus className="h-3.5 w-3.5" /> Compute Final Pay</Button>
-                                    </div>
-                                </div>
-                                {(!finalPayComputations || finalPayComputations.length === 0) ? (
-                                    <p className="text-sm text-muted-foreground text-center py-6">No final pay computations yet.</p>
-                                ) : (
-                                    <div className="overflow-x-auto">
-                                        <Table>
-                                            <TableHeader><TableRow>
-                                                <TableHead className="text-xs">Employee</TableHead><TableHead className="text-xs">Resigned</TableHead>
-                                                <TableHead className="text-xs">Pro-rated</TableHead><TableHead className="text-xs">Leave Payout</TableHead>
-                                                <TableHead className="text-xs">Unpaid OT</TableHead><TableHead className="text-xs">Loan Bal.</TableHead>
-                                                <TableHead className="text-xs">Deductions</TableHead><TableHead className="text-xs">Net Final</TableHead><TableHead className="text-xs">Status</TableHead>
-                                            </TableRow></TableHeader>
-                                            <TableBody>
-                                                {finalPayComputations.map((fp) => (
-                                                    <TableRow key={fp.id}>
-                                                        <TableCell className="text-sm font-medium">{getEmpName(fp.employeeId)}</TableCell>
-                                                        <TableCell className="text-xs text-muted-foreground">{new Date(fp.resignedAt).toLocaleDateString()}</TableCell>
-                                                        <TableCell className="text-sm">₱{(fp.proRatedSalary ?? 0).toLocaleString()}</TableCell>
-                                                        <TableCell className="text-sm">₱{(fp.leavePayout ?? 0).toLocaleString()}</TableCell>
-                                                        <TableCell className="text-sm">₱{(fp.unpaidOT ?? 0).toLocaleString()}</TableCell>
-                                                        <TableCell className="text-sm text-red-500">−₱{(fp.remainingLoanBalance ?? 0).toLocaleString()}</TableCell>
-                                                        <TableCell className="text-sm text-red-500">−₱{(fp.deductions ?? 0).toLocaleString()}</TableCell>
-                                                        <TableCell className="text-sm font-bold text-emerald-600 dark:text-emerald-400">₱{(fp.netFinalPay ?? 0).toLocaleString()}</TableCell>
-                                                        <TableCell>
-                                                            <Badge variant="secondary" className={`text-[10px] ${
-                                                                fp.status === "paid" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
-                                                                fp.status === "published" ? "bg-blue-500/15 text-blue-700 dark:text-blue-400" :
-                                                                fp.status === "locked" ? "bg-violet-500/15 text-violet-700 dark:text-violet-400" :
-                                                                "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-                                                            }`}>{fp.status}</Badge>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
-                                )}
-                            </CardContent>
-                        </Card>
+                    <TabsContent value="deductions" className="mt-4">
+                        <DeductionTemplatesSection />
                     </TabsContent>
                 )}
 
@@ -1606,37 +1502,6 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                 )}
             </Tabs>
 
-            {/* Create Adjustment Dialog */}
-            <CreateAdjustmentDialog
-                open={adjDialogOpen}
-                onOpenChange={setAdjDialogOpen}
-                employees={employees.map((e) => ({ id: e.id, name: e.name }))}
-                payslips={payslips}
-                currentUserId={currentUser.id}
-                onSubmit={(data) => {
-                    createAdjustment(data);
-                    useAuditStore.getState().log({ entityType: "payroll_adjustment", entityId: `ADJ-${Date.now()}`, action: "adjustment_created", performedBy: currentUser.id });
-                    toast.success("Adjustment created");
-                    setAdjDialogOpen(false);
-                }}
-            />
-
-            {/* Compute Final Pay Dialog */}
-            <ComputeFinalPayDialog
-                open={fpDialogOpen}
-                onOpenChange={setFpDialogOpen}
-                employees={employees}
-                getLeaveBalance={getLeaveBalance}
-                getLoanBalance={getLoanBalance}
-                existingIds={(finalPayComputations || []).map((fp) => fp.employeeId)}
-                onSubmit={(data) => {
-                    computeFinalPay(data);
-                    useAuditStore.getState().log({ entityType: "final_pay", entityId: data.employeeId, action: "final_pay_created", performedBy: currentUser.id });
-                    toast.success("Final pay computed");
-                    setFpDialogOpen(false);
-                }}
-            />
-
             {/* Printable Payslip Dialog */}
             {(() => {
                 const printPS = printPayslipId ? payslips.find((p) => p.id === printPayslipId) : null;
@@ -1691,11 +1556,9 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                             {viewedPayslip.payFrequency && <p className="text-[10px] text-muted-foreground capitalize mt-0.5">{viewedPayslip.payFrequency.replace("_", "-")} payroll</p>}
                                         </div>
                                         <Badge variant="secondary" className={`text-[10px] ${
-                                            viewedPayslip.status === "acknowledged" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
-                                            viewedPayslip.status === "paid" ? "bg-blue-500/15 text-blue-700 dark:text-blue-400" :
+                                            viewedPayslip.status === "signed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
                                             viewedPayslip.status === "published" ? "bg-violet-500/15 text-violet-700 dark:text-violet-400" :
-                                            viewedPayslip.status === "confirmed" ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400" :
-                                            viewedPayslip.status === "issued" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+                                            viewedPayslip.status === "draft" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
                                             "bg-slate-500/15 text-slate-700 dark:text-slate-400"
                                         }`}>{viewedPayslip.status}</Badge>
                                     </div>
@@ -1758,6 +1621,385 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                             </Card>
                         </div>
                     )}
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DEDUCTION TEMPLATES SECTION COMPONENT
+   Manages custom deduction/allowance templates in-line
+   ═══════════════════════════════════════════════════════════════ */
+
+// Available roles from database CHECK constraint
+const AVAILABLE_ROLES = ["admin", "hr", "finance", "employee", "supervisor", "payroll_admin", "auditor"] as const;
+
+// Special value for "None" selection in dropdowns
+const NONE_VALUE = "__none__";
+
+function DeductionTemplatesSection() {
+    const { templates, assignments, isLoading, error, fetchTemplates, fetchAssignments, addTemplate, updateTemplate, deleteTemplate, assignToEmployee, unassignFromEmployee, bulkAssignToEmployees } = useDeductionsStore();
+    const employees = useEmployeesStore((s) => s.employees);
+    const departments = useDepartmentsStore((s) => s.departments);
+    const projects = useProjectsStore((s) => s.projects);
+
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+
+    // Assign dialog state
+    const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+    const [assigningTemplateId, setAssigningTemplateId] = useState<string | null>(null);
+    const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
+    const [assignSearch, setAssignSearch] = useState("");
+    const [assignLoading, setAssignLoading] = useState(false);
+
+    // Form state
+    const [name, setName] = useState("");
+    const [type, setType] = useState<DeductionTemplateType>("deduction");
+    const [calcMode, setCalcMode] = useState<DeductionCalculationMode>("fixed");
+    const [value, setValue] = useState("");
+    const [appliesToAll, setAppliesToAll] = useState(false);
+    const [condDepartment, setCondDepartment] = useState("");
+    const [condRole, setCondRole] = useState("");
+    const [condProject, setCondProject] = useState("");
+    const [condMinSalary, setCondMinSalary] = useState("");
+    const [condMaxSalary, setCondMaxSalary] = useState("");
+
+    // Filter only active items for dropdowns
+    const activeDepartments = useMemo(() => departments.filter(d => d.isActive), [departments]);
+    const activeProjects = useMemo(() => projects.filter(p => p.status === "active"), [projects]);
+    const activeEmployees = useMemo(() => employees.filter(e => e.status === "active"), [employees]);
+
+    useEffect(() => { fetchTemplates(); fetchAssignments(); }, [fetchTemplates, fetchAssignments]);
+
+    // Get assignments count for a template
+    const getAssignmentCount = useCallback((templateId: string) => {
+        return assignments.filter(a => a.templateId === templateId && a.isActive).length;
+    }, [assignments]);
+
+    // Get assigned employee IDs for a template
+    const getAssignedEmployeeIds = useCallback((templateId: string) => {
+        return assignments.filter(a => a.templateId === templateId && a.isActive).map(a => a.employeeId);
+    }, [assignments]);
+
+    const resetForm = () => {
+        setName(""); setType("deduction"); setCalcMode("fixed"); setValue("");
+        setAppliesToAll(false); setCondDepartment(""); setCondRole(""); setCondProject(""); setCondMinSalary(""); setCondMaxSalary("");
+        setEditingId(null);
+        setSubmitting(false);
+    };
+
+    const openCreate = () => { resetForm(); setDialogOpen(true); };
+
+    const openEdit = (t: DeductionTemplate) => {
+        setEditingId(t.id);
+        setName(t.name);
+        setType(t.type);
+        setCalcMode(t.calculationMode);
+        setValue(String(t.value));
+        setAppliesToAll(t.appliesToAll ?? false);
+        setCondDepartment(t.conditions?.department?.toString() || "");
+        setCondRole(t.conditions?.role?.toString() || "");
+        setCondProject(t.conditions?.project?.toString() || "");
+        setCondMinSalary(t.conditions?.minSalary !== undefined ? String(t.conditions.minSalary) : "");
+        setCondMaxSalary(t.conditions?.maxSalary !== undefined ? String(t.conditions.maxSalary) : "");
+        setDialogOpen(true);
+    };
+
+    const openAssignDialog = (templateId: string) => {
+        setAssigningTemplateId(templateId);
+        setSelectedEmployees(getAssignedEmployeeIds(templateId));
+        setAssignSearch("");
+        setAssignDialogOpen(true);
+    };
+
+    const handleAssignSubmit = async () => {
+        if (!assigningTemplateId) return;
+        setAssignLoading(true);
+        try {
+            const currentAssigned = getAssignedEmployeeIds(assigningTemplateId);
+            const toAdd = selectedEmployees.filter(id => !currentAssigned.includes(id));
+            const toRemove = currentAssigned.filter(id => !selectedEmployees.includes(id));
+
+            // Remove unselected
+            for (const empId of toRemove) {
+                const assignment = assignments.find(a => a.templateId === assigningTemplateId && a.employeeId === empId && a.isActive);
+                if (assignment) await unassignFromEmployee(assignment.id);
+            }
+
+            // Add newly selected
+            if (toAdd.length > 0) {
+                await bulkAssignToEmployees({ employeeIds: toAdd, templateId: assigningTemplateId });
+            }
+
+            toast.success(`Updated ${selectedEmployees.length} employee assignment${selectedEmployees.length !== 1 ? "s" : ""}`);
+            setAssignDialogOpen(false);
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Failed to update assignments");
+        } finally {
+            setAssignLoading(false);
+        }
+    };
+
+    const filteredAssignEmployees = useMemo(() => {
+        if (!assignSearch) return activeEmployees;
+        const q = assignSearch.toLowerCase();
+        return activeEmployees.filter(e => e.name.toLowerCase().includes(q) || e.email.toLowerCase().includes(q) || e.department?.toLowerCase().includes(q));
+    }, [activeEmployees, assignSearch]);
+
+    const toggleEmployeeSelection = (empId: string) => {
+        setSelectedEmployees(prev => prev.includes(empId) ? prev.filter(id => id !== empId) : [...prev, empId]);
+    };
+
+    const handleSubmit = async () => {
+        if (!name.trim()) { toast.error("Template name is required"); return; }
+        if (!value) { toast.error("Value is required"); return; }
+        const numValue = parseFloat(value);
+        if (isNaN(numValue) || numValue < 0) { toast.error("Value must be a non-negative number"); return; }
+        if (calcMode === "percentage" && numValue > 100) { toast.error("Percentage cannot exceed 100%"); return; }
+
+        if (condMinSalary && condMaxSalary) {
+            const min = parseFloat(condMinSalary);
+            const max = parseFloat(condMaxSalary);
+            if (!isNaN(min) && !isNaN(max) && min > max) { toast.error("Min salary cannot be greater than max salary"); return; }
+        }
+
+        const conditions: Record<string, string | number> = {};
+        if (condDepartment && condDepartment !== NONE_VALUE) conditions.department = condDepartment;
+        if (condRole && condRole !== NONE_VALUE) conditions.role = condRole;
+        if (condProject && condProject !== NONE_VALUE) conditions.project = condProject;
+        if (condMinSalary) { const min = parseFloat(condMinSalary); if (!isNaN(min) && min > 0) conditions.minSalary = min; }
+        if (condMaxSalary) { const max = parseFloat(condMaxSalary); if (!isNaN(max) && max > 0) conditions.maxSalary = max; }
+
+        const data = { name: name.trim(), type, calculationMode: calcMode, value: numValue, conditions: Object.keys(conditions).length > 0 ? conditions : undefined, appliesToAll };
+
+        setSubmitting(true);
+        try {
+            if (editingId) { await updateTemplate(editingId, data); toast.success("Template updated"); }
+            else { await addTemplate(data); toast.success("Template created"); }
+            setDialogOpen(false);
+            resetForm();
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : "An error occurred");
+        } finally { setSubmitting(false); }
+    };
+
+    const calcModeLabel: Record<DeductionCalculationMode, string> = { fixed: "Fixed Amount", percentage: "% of Salary", daily: "Per Day", hourly: "Per Hour" };
+    const assigningTemplate = assigningTemplateId ? templates.find(t => t.id === assigningTemplateId) : null;
+
+    return (
+        <div className="space-y-4">
+            {error && <Card className="border border-red-300 bg-red-50 dark:bg-red-950/20"><CardContent className="p-3 text-sm text-red-700 dark:text-red-300">{error}</CardContent></Card>}
+
+            <div className="flex items-center justify-between">
+                <div>
+                    <p className="text-sm font-medium">Custom Deduction &amp; Allowance Templates</p>
+                    <p className="text-xs text-muted-foreground">{templates.length} template{templates.length !== 1 ? "s" : ""} — applied during payslip issuance</p>
+                </div>
+                <Dialog open={dialogOpen} onOpenChange={(v) => { setDialogOpen(v); if (!v) resetForm(); }}>
+                    <DialogTrigger asChild>
+                        <Button size="sm" className="gap-1.5" onClick={openCreate}><Plus className="h-3.5 w-3.5" /> Add Template</Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-lg">
+                        <DialogHeader><DialogTitle>{editingId ? "Edit Template" : "Create Deduction/Allowance Template"}</DialogTitle></DialogHeader>
+                        <div className="space-y-4 pt-2">
+                            <div>
+                                <label className="text-sm font-medium">Name</label>
+                                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Uniform Deduction" className="mt-1" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-sm font-medium">Type</label>
+                                    <Select value={type} onValueChange={(v) => setType(v as DeductionTemplateType)}>
+                                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="deduction">Deduction (−)</SelectItem>
+                                            <SelectItem value="allowance">Allowance (+)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium">Calculation Mode</label>
+                                    <Select value={calcMode} onValueChange={(v) => setCalcMode(v as DeductionCalculationMode)}>
+                                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="fixed">Fixed Amount</SelectItem>
+                                            <SelectItem value="percentage">Percentage of Salary</SelectItem>
+                                            <SelectItem value="daily">Per Day</SelectItem>
+                                            <SelectItem value="hourly">Per Hour</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium">
+                                    Value {calcMode === "percentage" ? "(%)" : calcMode === "fixed" ? "(₱)" : calcMode === "daily" ? "(₱/day)" : "(₱/hr)"}
+                                </label>
+                                <Input type="number" min="0" step="0.01" value={value} onChange={(e) => setValue(e.target.value)} className="mt-1" placeholder="0" />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Checkbox checked={appliesToAll} onCheckedChange={(v) => setAppliesToAll(!!v)} id="appliesAll" />
+                                <label htmlFor="appliesAll" className="text-sm">Applies to all employees by default</label>
+                            </div>
+                            <div className="border rounded-lg p-3 space-y-3">
+                                <p className="text-xs font-semibold text-muted-foreground uppercase">Conditions (optional)</p>
+                                <p className="text-[10px] text-muted-foreground -mt-2">Select one value per condition, or leave as &quot;None&quot;</p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs text-muted-foreground">Department</label>
+                                        <Select value={condDepartment || NONE_VALUE} onValueChange={(v) => setCondDepartment(v === NONE_VALUE ? "" : v)}>
+                                            <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value={NONE_VALUE}>None</SelectItem>
+                                                {activeDepartments.map((d) => <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-muted-foreground">Role</label>
+                                        <Select value={condRole || NONE_VALUE} onValueChange={(v) => setCondRole(v === NONE_VALUE ? "" : v)}>
+                                            <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value={NONE_VALUE}>None</SelectItem>
+                                                {AVAILABLE_ROLES.map((r) => <SelectItem key={r} value={r} className="capitalize">{r.replace("_", " ")}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-muted-foreground">Project</label>
+                                        <Select value={condProject || NONE_VALUE} onValueChange={(v) => setCondProject(v === NONE_VALUE ? "" : v)}>
+                                            <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value={NONE_VALUE}>None</SelectItem>
+                                                {activeProjects.map((p) => <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-muted-foreground">Min Salary (₱)</label>
+                                        <Input type="number" min="0" value={condMinSalary} onChange={(e) => setCondMinSalary(e.target.value)} className="mt-1 h-8 text-xs" placeholder="0" />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-muted-foreground">Max Salary (₱)</label>
+                                        <Input type="number" min="0" value={condMaxSalary} onChange={(e) => setCondMaxSalary(e.target.value)} className="mt-1 h-8 text-xs" placeholder="0" />
+                                    </div>
+                                </div>
+                            </div>
+                            <Button onClick={handleSubmit} className="w-full" disabled={isLoading || submitting}>
+                                {submitting ? "Saving..." : editingId ? "Update Template" : "Create Template"}
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            </div>
+
+            <Card className="border border-border/50">
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader><TableRow>
+                                <TableHead className="text-xs">Name</TableHead>
+                                <TableHead className="text-xs">Type</TableHead>
+                                <TableHead className="text-xs">Mode</TableHead>
+                                <TableHead className="text-xs">Value</TableHead>
+                                <TableHead className="text-xs">Assigned</TableHead>
+                                <TableHead className="text-xs">Conditions</TableHead>
+                                <TableHead className="text-xs">Status</TableHead>
+                                <TableHead className="text-xs w-28"></TableHead>
+                            </TableRow></TableHeader>
+                            <TableBody>
+                                {templates.length === 0 ? (
+                                    <TableRow><TableCell colSpan={8} className="text-center text-sm text-muted-foreground py-8">
+                                        {isLoading ? "Loading..." : "No templates yet. Create one to get started."}
+                                    </TableCell></TableRow>
+                                ) : templates.map((t) => (
+                                    <TableRow key={t.id}>
+                                        <TableCell className="text-sm font-medium">{t.name}</TableCell>
+                                        <TableCell>
+                                            <Badge variant="secondary" className={`text-[10px] ${t.type === "deduction" ? "bg-red-500/15 text-red-700 dark:text-red-400" : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"}`}>
+                                                {t.type === "deduction" ? "−" : "+"} {t.type}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-xs">{calcModeLabel[t.calculationMode]}</TableCell>
+                                        <TableCell className="text-sm font-mono">{t.calculationMode === "percentage" ? `${t.value}%` : formatCurrency(t.value)}</TableCell>
+                                        <TableCell>
+                                            <Badge variant="outline" className="text-[10px] cursor-pointer hover:bg-muted" onClick={() => openAssignDialog(t.id)}>
+                                                {t.appliesToAll ? "All" : `${getAssignmentCount(t.id)} emp`}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-[10px] text-muted-foreground max-w-[120px] truncate">
+                                            {t.conditions ? Object.entries(t.conditions).map(([k, v]) => `${k}: ${v}`).join(", ") : "—"}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Badge variant="secondary" className={`text-[10px] ${t.isActive ? "bg-emerald-500/15 text-emerald-700" : "bg-slate-500/15 text-slate-500"}`}>
+                                                {t.isActive ? "Active" : "Inactive"}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-1">
+                                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openAssignDialog(t.id)} title="Assign Employees"><Users className="h-3.5 w-3.5" /></Button>
+                                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(t)} title="Edit"><Edit className="h-3.5 w-3.5" /></Button>
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500"><Trash2 className="h-3.5 w-3.5" /></Button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader><AlertDialogTitle>Delete &ldquo;{t.name}&rdquo;?</AlertDialogTitle>
+                                                            <AlertDialogDescription>If employees are assigned this template, it will be marked inactive instead of deleted.</AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={() => { deleteTemplate(t.id); toast.success("Template deleted"); }} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Assign Employees Dialog */}
+            <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
+                <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>Assign Employees to &ldquo;{assigningTemplate?.name}&rdquo;</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input placeholder="Search employees..." value={assignSearch} onChange={(e) => setAssignSearch(e.target.value)} className="pl-9" />
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>{selectedEmployees.length} selected</span>
+                            <div className="flex gap-2">
+                                <button type="button" className="text-primary hover:underline" onClick={() => setSelectedEmployees(activeEmployees.map(e => e.id))}>Select All</button>
+                                <button type="button" className="text-muted-foreground hover:underline" onClick={() => setSelectedEmployees([])}>Clear</button>
+                            </div>
+                        </div>
+                        <div className="border rounded-lg max-h-[300px] overflow-y-auto divide-y">
+                            {filteredAssignEmployees.length === 0 ? (
+                                <p className="text-sm text-muted-foreground text-center py-6">No employees found</p>
+                            ) : filteredAssignEmployees.map((emp) => (
+                                <label key={emp.id} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 cursor-pointer">
+                                    <Checkbox checked={selectedEmployees.includes(emp.id)} onCheckedChange={() => toggleEmployeeSelection(emp.id)} />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium truncate">{emp.name}</p>
+                                        <p className="text-[10px] text-muted-foreground">{emp.department} &bull; {emp.role}</p>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                        <Button onClick={handleAssignSubmit} className="w-full" disabled={assignLoading}>
+                            {assignLoading ? "Saving..." : `Save Assignments (${selectedEmployees.length})`}
+                        </Button>
+                    </div>
                 </DialogContent>
             </Dialog>
         </div>

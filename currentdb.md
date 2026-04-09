@@ -202,6 +202,20 @@ CREATE TABLE public.deduction_overrides (
   CONSTRAINT deduction_overrides_pkey PRIMARY KEY (id),
   CONSTRAINT deduction_overrides_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id)
 );
+CREATE TABLE public.deduction_templates (
+  id text NOT NULL DEFAULT ('DT-'::text || (gen_random_uuid())::text),
+  name text NOT NULL,
+  type text NOT NULL DEFAULT 'deduction'::text CHECK (type = ANY (ARRAY['deduction'::text, 'allowance'::text])),
+  calculation_mode text NOT NULL DEFAULT 'fixed'::text CHECK (calculation_mode = ANY (ARRAY['fixed'::text, 'percentage'::text, 'daily'::text, 'hourly'::text])),
+  value numeric NOT NULL DEFAULT 0 CHECK (value >= 0::numeric),
+  conditions jsonb,
+  applies_to_all boolean NOT NULL DEFAULT false,
+  is_active boolean NOT NULL DEFAULT true,
+  created_by text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT deduction_templates_pkey PRIMARY KEY (id)
+);
 CREATE TABLE public.departments (
   id text NOT NULL,
   name text NOT NULL UNIQUE,
@@ -213,6 +227,21 @@ CREATE TABLE public.departments (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT departments_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.employee_deduction_assignments (
+  id text NOT NULL DEFAULT ('EDA-'::text || (gen_random_uuid())::text),
+  employee_id text NOT NULL,
+  template_id text NOT NULL,
+  override_value numeric,
+  effective_from date NOT NULL DEFAULT CURRENT_DATE,
+  effective_until date,
+  is_active boolean NOT NULL DEFAULT true,
+  assigned_by text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT employee_deduction_assignments_pkey PRIMARY KEY (id),
+  CONSTRAINT eda_template_fk FOREIGN KEY (template_id) REFERENCES public.deduction_templates(id),
+  CONSTRAINT eda_employee_fk FOREIGN KEY (employee_id) REFERENCES public.employees(id)
 );
 CREATE TABLE public.employee_documents (
   id text NOT NULL,
@@ -262,6 +291,8 @@ CREATE TABLE public.employees (
   emergency_contact text,
   address text,
   job_title text,
+  deduction_exempt boolean NOT NULL DEFAULT false,
+  deduction_exempt_reason text,
   CONSTRAINT employees_pkey PRIMARY KEY (id),
   CONSTRAINT employees_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id),
   CONSTRAINT fk_emp_shift FOREIGN KEY (shift_id) REFERENCES public.shift_templates(id)
@@ -388,8 +419,6 @@ CREATE TABLE public.leave_requests (
   type text NOT NULL,
   start_date date NOT NULL,
   end_date date NOT NULL,
-  duration text NOT NULL DEFAULT 'full_day'::text CHECK (duration = ANY (ARRAY['full_day'::text, 'half_day_am'::text, 'half_day_pm'::text, 'hourly'::text])),
-  hours numeric,
   reason text NOT NULL DEFAULT ''::text,
   status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])),
   reviewed_by text,
@@ -397,6 +426,8 @@ CREATE TABLE public.leave_requests (
   attachment_url text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  duration text NOT NULL DEFAULT 'full_day'::text CHECK (duration = ANY (ARRAY['full_day'::text, 'half_day_am'::text, 'half_day_pm'::text, 'hourly'::text])),
+  hours numeric,
   CONSTRAINT leave_requests_pkey PRIMARY KEY (id),
   CONSTRAINT leave_requests_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id)
 );
@@ -606,7 +637,7 @@ CREATE TABLE public.payroll_runs (
   id text NOT NULL,
   period_label text NOT NULL,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
-  status text NOT NULL DEFAULT 'draft'::text CHECK (status = ANY (ARRAY['draft'::text, 'validated'::text, 'locked'::text, 'published'::text, 'paid'::text])),
+  status text NOT NULL DEFAULT 'draft'::text CHECK (status = ANY (ARRAY['draft'::text, 'locked'::text, 'completed'::text])),
   locked boolean NOT NULL DEFAULT false,
   locked_at timestamp with time zone,
   published_at timestamp with time zone,
@@ -614,6 +645,7 @@ CREATE TABLE public.payroll_runs (
   payslip_ids ARRAY NOT NULL DEFAULT '{}'::text[],
   policy_snapshot jsonb,
   run_type text DEFAULT 'regular'::text CHECK (run_type = ANY (ARRAY['regular'::text, 'adjustment'::text, '13th_month'::text, 'final_pay'::text])),
+  completed_at timestamp with time zone,
   CONSTRAINT payroll_runs_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.payroll_signature_config (
@@ -624,6 +656,18 @@ CREATE TABLE public.payroll_signature_config (
   signature_data_url text,
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT payroll_signature_config_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.payslip_line_items (
+  id text NOT NULL DEFAULT ('PLI-'::text || (gen_random_uuid())::text),
+  payslip_id text NOT NULL,
+  label text NOT NULL,
+  type text NOT NULL CHECK (type = ANY (ARRAY['earning'::text, 'deduction'::text, 'government'::text, 'loan'::text])),
+  amount numeric NOT NULL,
+  template_id text,
+  calculation_detail text,
+  CONSTRAINT payslip_line_items_pkey PRIMARY KEY (id),
+  CONSTRAINT pli_payslip_fk FOREIGN KEY (payslip_id) REFERENCES public.payslips(id),
+  CONSTRAINT pli_template_fk FOREIGN KEY (template_id) REFERENCES public.deduction_templates(id)
 );
 CREATE TABLE public.payslips (
   id text NOT NULL,
@@ -642,7 +686,7 @@ CREATE TABLE public.payslips (
   holiday_pay numeric DEFAULT 0,
   net_pay numeric NOT NULL DEFAULT 0,
   issued_at date NOT NULL,
-  status text NOT NULL DEFAULT 'issued'::text CHECK (status = ANY (ARRAY['issued'::text, 'confirmed'::text, 'published'::text, 'paid'::text, 'acknowledged'::text])),
+  status text NOT NULL DEFAULT 'issued'::text CHECK (status = ANY (ARRAY['draft'::text, 'published'::text, 'signed'::text])),
   confirmed_at timestamp with time zone,
   published_at timestamp with time zone,
   paid_at timestamp with time zone,
@@ -659,6 +703,8 @@ CREATE TABLE public.payslips (
   acknowledged_by text,
   paid_confirmed_by text,
   paid_confirmed_at timestamp with time zone,
+  custom_deductions numeric NOT NULL DEFAULT 0,
+  line_items_json jsonb,
   CONSTRAINT payslips_pkey PRIMARY KEY (id),
   CONSTRAINT payslips_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id)
 );

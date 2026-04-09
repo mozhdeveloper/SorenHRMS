@@ -144,7 +144,7 @@ export const usePayrollStore = create<PayrollState>()(
             getGlobalDefault: (deductionType) =>
                 get().globalDefaults.find((g) => g.deductionType === deductionType),
 
-            // ─── Payslip lifecycle ─────────────────────────────────────
+            // ─── Payslip lifecycle (simplified: draft → published → signed) ───
             issuePayslip: (data) =>
                 set((s) => ({
                     payslips: [
@@ -152,62 +152,62 @@ export const usePayrollStore = create<PayrollState>()(
                         {
                             ...data,
                             id: `PS-${nanoid(8)}`,
-                            status: "issued",
+                            status: "draft",
                             issuedAt: data.issuedAt ?? new Date().toISOString().split("T")[0],
                         },
                     ],
                 })),
 
-            confirmPayslip: (id) =>
-                set((s) => ({
-                    payslips: s.payslips.map((p) =>
-                        p.id === id && p.status === "issued"
-                            ? { ...p, status: "confirmed" as const, confirmedAt: new Date().toISOString() }
-                            : p
-                    ),
-                })),
+            // DEPRECATED: no-op in simplified flow (kept for backward compat)
+            confirmPayslip: (_id) =>
+                set(() => ({})),
 
+            // Publish: draft → published (locks payslip, visible to employee)
             publishPayslip: (id) =>
                 set((s) => ({
                     payslips: s.payslips.map((p) =>
-                        p.id === id && p.status === "confirmed"
+                        p.id === id && p.status === "draft"
                             ? { ...p, status: "published" as const, publishedAt: new Date().toISOString() }
                             : p
                     ),
                 })),
 
+            // Record payment details (tracks payment info on published payslips, no status change)
             recordPayment: (id, paymentMethod, bankReferenceId) =>
                 set((s) => ({
                     payslips: s.payslips.map((p) =>
                         p.id === id && p.status === "published"
-                            ? { ...p, status: "paid" as const, paidAt: new Date().toISOString(), paymentMethod, bankReferenceId }
+                            ? { ...p, paidAt: new Date().toISOString(), paymentMethod, bankReferenceId }
                             : p
                     ),
                 })),
 
+            // Sign: published → signed (employee e-signs to acknowledge receipt — terminal state)
             signPayslip: (id, signatureDataUrl) =>
                 set((s) => ({
                     payslips: s.payslips.map((p) =>
-                        p.id === id && ["issued", "confirmed", "published"].includes(p.status)
-                            ? { ...p, signedAt: new Date().toISOString(), signatureDataUrl }
+                        p.id === id && p.status === "published"
+                            ? { ...p, status: "signed" as const, signedAt: new Date().toISOString(), signatureDataUrl }
                             : p
                     ),
                 })),
 
+            // DEPRECATED: merged into signPayslip (kept for backward compat)
             acknowledgePayslip: (id, employeeId) =>
                 set((s) => ({
                     payslips: s.payslips.map((p) =>
-                        p.id === id && p.status === "paid" && p.signedAt
-                            ? { ...p, status: "acknowledged" as const, acknowledgedAt: new Date().toISOString(), acknowledgedBy: employeeId }
+                        p.id === id && p.status === "published"
+                            ? { ...p, status: "signed" as const, acknowledgedAt: new Date().toISOString(), acknowledgedBy: employeeId }
                             : p
                     ),
                 })),
 
+            // Payment tracking only (no status change in simplified flow)
             confirmPaidByFinance: (id, confirmedBy, method, reference) =>
                 set((s) => ({
                     payslips: s.payslips.map((p) =>
-                        p.id === id && p.status === "published"
-                            ? { ...p, status: "paid" as const, paidAt: new Date().toISOString(), paidConfirmedBy: confirmedBy, paidConfirmedAt: new Date().toISOString(), paymentMethod: method, bankReferenceId: reference }
+                        p.id === id
+                            ? { ...p, paidAt: new Date().toISOString(), paidConfirmedBy: confirmedBy, paidConfirmedAt: new Date().toISOString(), paymentMethod: method, bankReferenceId: reference }
                             : p
                     ),
                 })),
@@ -221,10 +221,10 @@ export const usePayrollStore = create<PayrollState>()(
                 })),
 
             getPayslipsByStatus: (status) => get().payslips.filter((p) => p.status === status),
-            getSignedPayslips: () => get().payslips.filter((p) => !!p.signedAt),
+            getSignedPayslips: () => get().payslips.filter((p) => p.status === "signed"),
             getUnsignedPublished: () => get().payslips.filter((p) => p.status === "published" && !p.signedAt),
 
-            // ─── Payroll runs — draft → validated → locked → published → paid ─
+            // ─── Payroll runs — draft → locked → completed ───────────
             createDraftRun: (runDate, payslipIds, runType = "regular") =>
                 set((s) => {
                     const existing = s.runs.find((r) => r.periodLabel === runDate);
@@ -251,25 +251,15 @@ export const usePayrollStore = create<PayrollState>()(
                     };
                 }),
 
-            validateRun: (runDate) =>
-                set((s) => {
-                    const run = s.runs.find((r) => r.periodLabel === runDate);
-                    if (!run || run.status !== "draft") return {};
-                    return {
-                        runs: s.runs.map((r) =>
-                            r.periodLabel === runDate
-                                ? { ...r, status: "validated" as const }
-                                : r
-                        ),
-                    };
-                }),
+            // DEPRECATED: no-op in simplified flow (draft goes directly to locked)
+            validateRun: (_runDate) =>
+                set(() => ({})),
 
+            // Lock run: draft → locked (auto-publishes all draft payslips, freezes policy snapshot)
             lockRun: (runDate, lockedBy = "system") =>
                 set((s) => {
                     const existingRun = s.runs.find((r) => r.periodLabel === runDate);
-                    // If already locked, do nothing (immutable)
                     if (existingRun?.locked) return {};
-                    // Collect payslipIds from existing run or from payslips matching the date
                     const runPayslipIds = existingRun?.payslipIds?.length
                         ? existingRun.payslipIds
                         : s.payslips.filter((p) => p.issuedAt === runDate).map((p) => p.id);
@@ -284,13 +274,18 @@ export const usePayrollStore = create<PayrollState>()(
                         lockedBy,
                     };
                     if (existingRun) {
-                        // Only lock from validated (or draft for backward compat)
-                        if (existingRun.status !== "validated" && existingRun.status !== "draft") return {};
+                        if (existingRun.status !== "draft") return {};
                         return {
                             runs: s.runs.map((r) =>
                                 r.id === existingRun.id
                                     ? { ...r, locked: true, status: "locked" as const, lockedAt: new Date().toISOString(), policySnapshot: snapshot }
                                     : r
+                            ),
+                            // Auto-publish all draft payslips in this run
+                            payslips: s.payslips.map((p) =>
+                                runPayslipIds.includes(p.id) && p.status === "draft"
+                                    ? { ...p, status: "published" as const, publishedAt: new Date().toISOString() }
+                                    : p
                             ),
                         };
                     }
@@ -309,37 +304,38 @@ export const usePayrollStore = create<PayrollState>()(
                                 runType: "regular",
                             },
                         ],
-                    };
-                }),
-
-            publishRun: (runDate) =>
-                set((s) => {
-                    const run = s.runs.find((r) => r.periodLabel === runDate);
-                    if (!run || !run.locked || run.status === "published" || run.status === "paid") return {};
-                    const runPayslipIds = run.payslipIds ?? [];
-                    return {
-                        runs: s.runs.map((r) =>
-                            r.periodLabel === runDate
-                                ? { ...r, status: "published" as const, publishedAt: new Date().toISOString() }
-                                : r
-                        ),
-                        // Auto-publish all confirmed payslips in this run
                         payslips: s.payslips.map((p) =>
-                            runPayslipIds.includes(p.id) && p.status === "confirmed"
+                            runPayslipIds.includes(p.id) && p.status === "draft"
                                 ? { ...p, status: "published" as const, publishedAt: new Date().toISOString() }
                                 : p
                         ),
                     };
                 }),
 
+            // DEPRECATED: merged into lockRun (kept for backward compat)
+            publishRun: (runDate) =>
+                set((s) => {
+                    const run = s.runs.find((r) => r.periodLabel === runDate);
+                    if (!run || !run.locked || run.status === "completed") return {};
+                    const runPayslipIds = run.payslipIds ?? [];
+                    return {
+                        payslips: s.payslips.map((p) =>
+                            runPayslipIds.includes(p.id) && p.status === "draft"
+                                ? { ...p, status: "published" as const, publishedAt: new Date().toISOString() }
+                                : p
+                        ),
+                    };
+                }),
+
+            // Complete run: locked → completed (terminal state)
             markRunPaid: (runDate) =>
                 set((s) => {
                     const run = s.runs.find((r) => r.periodLabel === runDate);
-                    if (!run || run.status !== "published") return {};
+                    if (!run || run.status !== "locked") return {};
                     return {
                         runs: s.runs.map((r) =>
                             r.periodLabel === runDate
-                                ? { ...r, status: "paid" as const, paidAt: new Date().toISOString() }
+                                ? { ...r, status: "completed" as const, completedAt: new Date().toISOString() }
                                 : r
                         ),
                     };
@@ -398,7 +394,7 @@ export const usePayrollStore = create<PayrollState>()(
                         loanDeduction: 0,
                         netPay: adj.amount,
                         issuedAt: new Date().toISOString().split("T")[0],
-                        status: "issued",
+                        status: "draft",
                         notes: `Payroll Adjustment — Prior Period (${adj.reason})`,
                         adjustmentRef: adj.id,
                     };
@@ -486,7 +482,7 @@ export const usePayrollStore = create<PayrollState>()(
                             loanDeduction: 0,
                             netPay: thirteenthPay,
                             issuedAt: today,
-                            status: "issued" as const,
+                            status: "draft" as const,
                             notes: `13th Month Pay (${monthsWorked}/12 months)`,
                         };
                     }).filter((s) => s.netPay > 0);
@@ -496,7 +492,7 @@ export const usePayrollStore = create<PayrollState>()(
             getByEmployee: (employeeId) =>
                 get().payslips.filter((p) => p.employeeId === employeeId),
 
-            getPending: () => get().payslips.filter((p) => p.status === "issued"),
+            getPending: () => get().payslips.filter((p) => p.status === "draft"),
 
             exportBankFile: (runDate, employees) => {
                 const state = get();

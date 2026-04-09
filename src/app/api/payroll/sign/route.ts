@@ -95,18 +95,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!["issued", "confirmed", "published", "paid"].includes(payslip.status)) {
+    if (payslip.status !== "published") {
       return NextResponse.json(
-        { ok: false, message: `Cannot sign payslip in "${payslip.status}" status.` },
+        { ok: false, message: `Cannot sign payslip in "${payslip.status}" status. Must be published.` },
         { status: 400 }
       );
     }
 
-    // Update payslip with signature
+    // Update payslip with signature and transition to "signed" status
     const now = new Date().toISOString();
     const { data: updatedPayslip, error: updateErr } = await supabase
       .from("payslips")
       .update({
+        status: "signed",
         signed_at: now,
         signature_data_url: signatureDataUrl,
       })

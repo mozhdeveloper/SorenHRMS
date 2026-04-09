@@ -73,11 +73,23 @@ export default function AdminProjectsView() {
 
     const handleEditSave = () => {
         if (!editProject) return;
-        if (!editName || !editLat || !editLng) { toast.error("Please fill all required fields"); return; }
+        if (!editName.trim()) { toast.error("Project name is required"); return; }
+        if (!editLat || !editLng) { toast.error("Location coordinates are required"); return; }
+        const latNum = Number(editLat);
+        const lngNum = Number(editLng);
+        const radiusNum = Number(editRadius);
+        if (isNaN(latNum) || latNum < -90 || latNum > 90) { toast.error("Latitude must be a number between -90 and 90"); return; }
+        if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) { toast.error("Longitude must be a number between -180 and 180"); return; }
+        if (isNaN(radiusNum) || radiusNum < 10 || radiusNum > 10000) { toast.error("Radius must be between 10 and 10000 meters"); return; }
+        // Check for duplicate name (excluding current project)
+        if (projects.some((p) => p.id !== editProject.id && p.name.toLowerCase() === editName.trim().toLowerCase())) {
+            toast.error("A project with this name already exists");
+            return;
+        }
         updateProject(editProject.id, {
-            name: editName,
-            description: editDescription,
-            location: { lat: Number(editLat), lng: Number(editLng), radius: Number(editRadius) || 100, address: editLocationAddress || undefined },
+            name: editName.trim(),
+            description: editDescription.trim(),
+            location: { lat: latNum, lng: lngNum, radius: radiusNum, address: editLocationAddress.trim() || undefined },
             verificationMethod: editVerificationMethod,
         });
         toast.success(`Project "${editName}" updated!`);
@@ -86,8 +98,20 @@ export default function AdminProjectsView() {
     };
 
     const handleAddProject = () => {
-        if (!name || !lat || !lng) { toast.error("Please fill all required fields"); return; }
-        addProject({ name, description, location: { lat: Number(lat), lng: Number(lng), radius: Number(radius) || 100, address: locationAddress || undefined }, assignedEmployeeIds: [], verificationMethod });
+        if (!name.trim()) { toast.error("Project name is required"); return; }
+        if (!lat || !lng) { toast.error("Location coordinates are required"); return; }
+        const latNum = Number(lat);
+        const lngNum = Number(lng);
+        const radiusNum = Number(radius);
+        if (isNaN(latNum) || latNum < -90 || latNum > 90) { toast.error("Latitude must be a number between -90 and 90"); return; }
+        if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) { toast.error("Longitude must be a number between -180 and 180"); return; }
+        if (isNaN(radiusNum) || radiusNum < 10 || radiusNum > 10000) { toast.error("Radius must be between 10 and 10000 meters"); return; }
+        // Check for duplicate name
+        if (projects.some((p) => p.name.toLowerCase() === name.trim().toLowerCase())) {
+            toast.error("A project with this name already exists");
+            return;
+        }
+        addProject({ name: name.trim(), description: description.trim(), location: { lat: latNum, lng: lngNum, radius: radiusNum, address: locationAddress.trim() || undefined }, assignedEmployeeIds: [], verificationMethod });
         toast.success(`Project "${name}" created!`);
         setName(""); setDescription(""); setLat(""); setLng(""); setRadius("100"); setLocationAddress(""); setVerificationMethod("face_only");
         setAddOpen(false);

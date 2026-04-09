@@ -5,6 +5,7 @@ import { useEmployeesStore } from "@/store/employees.store";
 import { useAuthStore } from "@/store/auth.store";
 import { useRolesStore } from "@/store/roles.store";
 import { usePayrollStore } from "@/store/payroll.store";
+import { useDeductionsStore } from "@/store/deductions.store";
 import { useLoansStore } from "@/store/loans.store";
 import { useLeaveStore } from "@/store/leave.store";
 import { useProjectsStore } from "@/store/projects.store";
@@ -41,14 +42,15 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Slider } from "@/components/ui/slider";
 import { nanoid } from "nanoid";
-import { Search, SlidersHorizontal, Eye, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, UserMinus, Pencil, Mail, MapPin, Phone, Cake, DollarSign, RefreshCw, KeyRound, ShieldCheck, Briefcase, User, FolderKanban, Users, Tag, Crown, Building2 } from "lucide-react";
+import { Search, SlidersHorizontal, Eye, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, UserMinus, Pencil, Mail, MapPin, Phone, Cake, DollarSign, RefreshCw, KeyRound, ShieldCheck, Briefcase, User, FolderKanban, Users, Tag, Crown, Building2, Receipt, Calculator } from "lucide-react";
 import { getInitials, formatCurrency, formatDate, validatePhone } from "@/lib/format";
 import Link from "next/link";
 import { useRoleHref } from "@/lib/hooks/use-role-href";
 import { toast } from "sonner";
 import { useAuditStore } from "@/store/audit.store";
 import { Switch } from "@/components/ui/switch";
-import type { Employee, WorkType, PayFrequency, Role, JobTitle, Department } from "@/types";
+import { Checkbox } from "@/components/ui/checkbox";
+import type { Employee, WorkType, PayFrequency, Role, JobTitle, Department, DeductionType, DeductionOverrideMode, DeductionTemplate } from "@/types";
 
 const USE_DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
@@ -73,7 +75,8 @@ export default function AdminEmployeesView() {
     const demoAccounts = useAuthStore((s) => s.accounts);
     const demoAdminSetPassword = useAuthStore((s) => s.adminSetPassword);
     const demoDeleteAccount = useAuthStore((s) => s.deleteAccount);
-    const { computeFinalPay, paySchedule } = usePayrollStore();
+    const { computeFinalPay, paySchedule, deductionOverrides, setDeductionOverride, removeDeductionOverride, getEmployeeOverrides } = usePayrollStore();
+    const { templates: deductionTemplates, assignments: deductionAssignments, fetchTemplates: fetchDeductionTemplates, fetchAssignments: fetchDeductionAssignments, assignToEmployee: assignDeductionToEmployee, unassignFromEmployee: unassignDeductionFromEmployee } = useDeductionsStore();
     const { getActiveByEmployee } = useLoansStore();
     const { getEmployeeBalances } = useLeaveStore();
     const { projects, assignEmployee: assignToProject, removeEmployee: removeFromProject, getProjectForEmployee } = useProjectsStore();
@@ -111,7 +114,16 @@ export default function AdminEmployeesView() {
         return () => { cancelled = true; };
     }, []);
 
+    // Fetch deduction templates on mount
+    useEffect(() => {
+        fetchDeductionTemplates();
+        fetchDeductionAssignments();
+    }, [fetchDeductionTemplates, fetchDeductionAssignments]);
+
     const accounts = USE_DEMO_MODE ? demoAccounts : realAccounts;
+
+    // Active deduction/allowance templates
+    const activeTemplates = useMemo(() => deductionTemplates.filter(t => t.isActive), [deductionTemplates]);
 
     // ─── Accounts Tab State ───
     const [acctSearch, setAcctSearch] = useState("");
@@ -342,6 +354,17 @@ export default function AdminEmployeesView() {
     const [newShiftId, setNewShiftId] = useState<string>("none");
     const [newEmergencyContact, setNewEmergencyContact] = useState("");
     const [newAddress, setNewAddress] = useState("");
+    // Deduction/Allowance templates for new employee
+    const [newDeductionTemplateIds, setNewDeductionTemplateIds] = useState<string[]>([]);
+    // Tax overrides for new employee (optional - only if not using auto)
+    const [newSssMode, setNewSssMode] = useState<DeductionOverrideMode>("auto");
+    const [newSssValue, setNewSssValue] = useState("");
+    const [newPhilhealthMode, setNewPhilhealthMode] = useState<DeductionOverrideMode>("auto");
+    const [newPhilhealthValue, setNewPhilhealthValue] = useState("");
+    const [newPagibigMode, setNewPagibigMode] = useState<DeductionOverrideMode>("auto");
+    const [newPagibigValue, setNewPagibigValue] = useState("");
+    const [newBirMode, setNewBirMode] = useState<DeductionOverrideMode>("auto");
+    const [newBirValue, setNewBirValue] = useState("");
 
     const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const toggleWorkDay = (day: string) =>
@@ -376,6 +399,17 @@ export default function AdminEmployeesView() {
     const [editShiftId, setEditShiftId] = useState<string>("none");
     const [editEmergencyContact, setEditEmergencyContact] = useState("");
     const [editAddress, setEditAddress] = useState("");
+    // Deduction/Allowance templates for edit employee
+    const [editDeductionTemplateIds, setEditDeductionTemplateIds] = useState<string[]>([]);
+    // Tax overrides for edit employee
+    const [editSssMode, setEditSssMode] = useState<DeductionOverrideMode>("auto");
+    const [editSssValue, setEditSssValue] = useState("");
+    const [editPhilhealthMode, setEditPhilhealthMode] = useState<DeductionOverrideMode>("auto");
+    const [editPhilhealthValue, setEditPhilhealthValue] = useState("");
+    const [editPagibigMode, setEditPagibigMode] = useState<DeductionOverrideMode>("auto");
+    const [editPagibigValue, setEditPagibigValue] = useState("");
+    const [editBirMode, setEditBirMode] = useState<DeductionOverrideMode>("auto");
+    const [editBirValue, setEditBirValue] = useState("");
 
     // Salary governance (Directory tab)
     const [salaryDialogEmpId, setSalaryDialogEmpId] = useState<string | null>(null);
@@ -491,11 +525,42 @@ export default function AdminEmployeesView() {
         // Reset form fields
         const resetForm = () => {
             setNewName(""); setNewEmail(""); setNewJobTitle(""); setNewDept(""); setNewWorkType("WFO"); setNewSalary(""); setNewPhone(""); setNewPayFreq("company"); setNewSystemRole("employee"); setNewPassword(""); setNewMustChange(true); setNewWorkDays(["Mon", "Tue", "Wed", "Thu", "Fri"]); setNewProjectId("none"); setNewBirthday(""); setNewTeamLeader("none"); setNewShiftId("none"); setNewEmergencyContact(""); setNewAddress("");
+            // Reset deduction/tax fields
+            setNewDeductionTemplateIds([]); setNewSssMode("auto"); setNewSssValue(""); setNewPhilhealthMode("auto"); setNewPhilhealthValue(""); setNewPagibigMode("auto"); setNewPagibigValue(""); setNewBirMode("auto"); setNewBirValue("");
         };
         
         // Handle project and shift assignments
         if (newProjectId && newProjectId !== "none") assignToProject(newProjectId, id);
         if (newShiftId && newShiftId !== "none") assignShift(id, newShiftId);
+
+        // Handle deduction template assignments (async, don't block)
+        if (newDeductionTemplateIds.length > 0) {
+            newDeductionTemplateIds.forEach(templateId => {
+                assignDeductionToEmployee({ employeeId: id, templateId }).catch(() => {});
+            });
+        }
+
+        // Handle tax overrides (async, don't block)
+        const taxOverrides: Array<{ type: DeductionType; mode: DeductionOverrideMode; value: string; setter: typeof setDeductionOverride }> = [
+            { type: "sss", mode: newSssMode, value: newSssValue, setter: setDeductionOverride },
+            { type: "philhealth", mode: newPhilhealthMode, value: newPhilhealthValue, setter: setDeductionOverride },
+            { type: "pagibig", mode: newPagibigMode, value: newPagibigValue, setter: setDeductionOverride },
+            { type: "bir", mode: newBirMode, value: newBirValue, setter: setDeductionOverride },
+        ];
+        taxOverrides.forEach(({ type, mode, value }) => {
+            if (mode !== "auto") {
+                const override = {
+                    id: `DO-${id}-${type}`,
+                    employeeId: id,
+                    deductionType: type,
+                    mode,
+                    percentage: mode === "percentage" ? parseFloat(value) || 0 : undefined,
+                    fixedAmount: mode === "fixed" ? parseFloat(value) || 0 : undefined,
+                    updatedAt: new Date().toISOString(),
+                };
+                setDeductionOverride(override);
+            }
+        });
         
         if (newPassword) {
             if (USE_DEMO_MODE) {
@@ -550,7 +615,29 @@ export default function AdminEmployeesView() {
         setEditBirthday(emp.birthday || ""); setEditTeamLeader(emp.teamLeader || "none"); setEditShiftId(emp.shiftId || "none");
         setEditEmergencyContact(emp.emergencyContact || ""); setEditAddress(emp.address || "");
         const currentProject = getProjectForEmployee(emp.id);
-        setEditProjectId(currentProject?.id || ""); setEditOpen(true);
+        setEditProjectId(currentProject?.id || "");
+        
+        // Load current deduction template assignments
+        const empAssignments = deductionAssignments.filter(a => a.employeeId === emp.id && a.isActive);
+        setEditDeductionTemplateIds(empAssignments.map(a => a.templateId));
+        
+        // Load current tax overrides
+        const empOverrides = getEmployeeOverrides(emp.id);
+        const sssOv = empOverrides.find(o => o.deductionType === "sss");
+        const phOv = empOverrides.find(o => o.deductionType === "philhealth");
+        const pagOv = empOverrides.find(o => o.deductionType === "pagibig");
+        const birOv = empOverrides.find(o => o.deductionType === "bir");
+        
+        setEditSssMode(sssOv?.mode || "auto");
+        setEditSssValue(sssOv?.mode === "percentage" ? String(sssOv.percentage || "") : sssOv?.mode === "fixed" ? String(sssOv.fixedAmount || "") : "");
+        setEditPhilhealthMode(phOv?.mode || "auto");
+        setEditPhilhealthValue(phOv?.mode === "percentage" ? String(phOv.percentage || "") : phOv?.mode === "fixed" ? String(phOv.fixedAmount || "") : "");
+        setEditPagibigMode(pagOv?.mode || "auto");
+        setEditPagibigValue(pagOv?.mode === "percentage" ? String(pagOv.percentage || "") : pagOv?.mode === "fixed" ? String(pagOv.fixedAmount || "") : "");
+        setEditBirMode(birOv?.mode || "auto");
+        setEditBirValue(birOv?.mode === "percentage" ? String(birOv.percentage || "") : birOv?.mode === "fixed" ? String(birOv.fixedAmount || "") : "");
+        
+        setEditOpen(true);
     };
 
     const handleSaveEdit = () => {
@@ -587,6 +674,42 @@ export default function AdminEmployeesView() {
         if (currentProject && currentProject.id !== editProjectId) removeFromProject(currentProject.id, editingEmp.id);
         if (editProjectId && editProjectId !== "none" && (!currentProject || currentProject.id !== editProjectId)) assignToProject(editProjectId, editingEmp.id);
         else if (editProjectId === "none" && currentProject) removeFromProject(currentProject.id, editingEmp.id);
+
+        // Update deduction template assignments
+        const currentAssignments = deductionAssignments.filter(a => a.employeeId === editingEmp.id && a.isActive);
+        const currentTemplateIds = currentAssignments.map(a => a.templateId);
+        const toAssign = editDeductionTemplateIds.filter(id => !currentTemplateIds.includes(id));
+        const toUnassign = currentAssignments.filter(a => !editDeductionTemplateIds.includes(a.templateId));
+        // Unassign removed templates
+        toUnassign.forEach(a => unassignDeductionFromEmployee(a.id).catch(() => {}));
+        // Assign new templates
+        toAssign.forEach(templateId => assignDeductionToEmployee({ employeeId: editingEmp.id, templateId }).catch(() => {}));
+
+        // Update tax overrides
+        const taxSettings: Array<{ type: DeductionType; mode: DeductionOverrideMode; value: string }> = [
+            { type: "sss", mode: editSssMode, value: editSssValue },
+            { type: "philhealth", mode: editPhilhealthMode, value: editPhilhealthValue },
+            { type: "pagibig", mode: editPagibigMode, value: editPagibigValue },
+            { type: "bir", mode: editBirMode, value: editBirValue },
+        ];
+        taxSettings.forEach(({ type, mode, value }) => {
+            if (mode === "auto") {
+                // Remove override if switching to auto
+                removeDeductionOverride(editingEmp.id, type);
+            } else {
+                const override = {
+                    id: `DO-${editingEmp.id}-${type}`,
+                    employeeId: editingEmp.id,
+                    deductionType: type,
+                    mode,
+                    percentage: mode === "percentage" ? parseFloat(value) || 0 : undefined,
+                    fixedAmount: mode === "fixed" ? parseFloat(value) || 0 : undefined,
+                    updatedAt: new Date().toISOString(),
+                };
+                setDeductionOverride(override);
+            }
+        });
+
         toast.success(`${editName} updated successfully!`);
         useAuditStore.getState().log({ entityType: "employee", entityId: editingEmp.id, action: "adjustment_applied", performedBy: currentUser.id, reason: "Profile updated" });
         setEditOpen(false); setEditingEmp(null);
@@ -756,6 +879,138 @@ export default function AdminEmployeesView() {
                                             })()}
                                         </div>
                                     </div>
+
+                                    {/* Deduction/Allowance Templates */}
+                                    <div className="rounded-lg border bg-card">
+                                        <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-muted/40 rounded-t-lg">
+                                            <Receipt className="h-3.5 w-3.5 text-muted-foreground" />
+                                            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Deduction/Allowance</span>
+                                            <span className="ml-auto text-[10px] font-normal text-muted-foreground/60">optional</span>
+                                        </div>
+                                        <div className="p-4 space-y-2">
+                                            {activeTemplates.length === 0 ? (
+                                                <p className="text-xs text-muted-foreground">No active templates available. Create templates in Payroll → Deduction/Allowance first.</p>
+                                            ) : (
+                                                activeTemplates.map((t) => (
+                                                    <label key={t.id} className="flex items-center gap-2 cursor-pointer">
+                                                        <Checkbox
+                                                            checked={newDeductionTemplateIds.includes(t.id)}
+                                                            onCheckedChange={(checked) => {
+                                                                if (checked) setNewDeductionTemplateIds([...newDeductionTemplateIds, t.id]);
+                                                                else setNewDeductionTemplateIds(newDeductionTemplateIds.filter(id => id !== t.id));
+                                                            }}
+                                                        />
+                                                        <span className="text-sm">{t.name}</span>
+                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${t.type === "allowance" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                                                            {t.type}
+                                                        </span>
+                                                        <span className="text-xs text-muted-foreground ml-auto">
+                                                            {t.calculationMode === "percentage" ? `${t.value}%` : `₱${t.value.toLocaleString()}`}
+                                                        </span>
+                                                    </label>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Tax Settings */}
+                                    <div className="rounded-lg border bg-card">
+                                        <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-muted/40 rounded-t-lg">
+                                            <Calculator className="h-3.5 w-3.5 text-muted-foreground" />
+                                            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tax Settings</span>
+                                            <span className="ml-auto text-[10px] font-normal text-muted-foreground/60">optional — defaults to auto</span>
+                                        </div>
+                                        <div className="p-4 grid grid-cols-2 gap-4">
+                                            {/* SSS */}
+                                            <div>
+                                                <label className="text-xs font-medium text-muted-foreground">SSS</label>
+                                                <Select value={newSssMode} onValueChange={(v: DeductionOverrideMode) => setNewSssMode(v)}>
+                                                    <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="auto">Auto-compute</SelectItem>
+                                                        <SelectItem value="exempt">Exempt</SelectItem>
+                                                        <SelectItem value="percentage">Custom %</SelectItem>
+                                                        <SelectItem value="fixed">Fixed Amount</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                {(newSssMode === "percentage" || newSssMode === "fixed") && (
+                                                    <Input
+                                                        type="number"
+                                                        placeholder={newSssMode === "percentage" ? "e.g. 4.5" : "e.g. 1000"}
+                                                        value={newSssValue}
+                                                        onChange={(e) => setNewSssValue(e.target.value)}
+                                                        className="mt-1 h-8 text-sm"
+                                                    />
+                                                )}
+                                            </div>
+                                            {/* PhilHealth */}
+                                            <div>
+                                                <label className="text-xs font-medium text-muted-foreground">PhilHealth</label>
+                                                <Select value={newPhilhealthMode} onValueChange={(v: DeductionOverrideMode) => setNewPhilhealthMode(v)}>
+                                                    <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="auto">Auto-compute</SelectItem>
+                                                        <SelectItem value="exempt">Exempt</SelectItem>
+                                                        <SelectItem value="percentage">Custom %</SelectItem>
+                                                        <SelectItem value="fixed">Fixed Amount</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                {(newPhilhealthMode === "percentage" || newPhilhealthMode === "fixed") && (
+                                                    <Input
+                                                        type="number"
+                                                        placeholder={newPhilhealthMode === "percentage" ? "e.g. 2.0" : "e.g. 500"}
+                                                        value={newPhilhealthValue}
+                                                        onChange={(e) => setNewPhilhealthValue(e.target.value)}
+                                                        className="mt-1 h-8 text-sm"
+                                                    />
+                                                )}
+                                            </div>
+                                            {/* Pag-IBIG */}
+                                            <div>
+                                                <label className="text-xs font-medium text-muted-foreground">Pag-IBIG</label>
+                                                <Select value={newPagibigMode} onValueChange={(v: DeductionOverrideMode) => setNewPagibigMode(v)}>
+                                                    <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="auto">Auto-compute</SelectItem>
+                                                        <SelectItem value="exempt">Exempt</SelectItem>
+                                                        <SelectItem value="percentage">Custom %</SelectItem>
+                                                        <SelectItem value="fixed">Fixed Amount</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                {(newPagibigMode === "percentage" || newPagibigMode === "fixed") && (
+                                                    <Input
+                                                        type="number"
+                                                        placeholder={newPagibigMode === "percentage" ? "e.g. 2.0" : "e.g. 200"}
+                                                        value={newPagibigValue}
+                                                        onChange={(e) => setNewPagibigValue(e.target.value)}
+                                                        className="mt-1 h-8 text-sm"
+                                                    />
+                                                )}
+                                            </div>
+                                            {/* BIR */}
+                                            <div>
+                                                <label className="text-xs font-medium text-muted-foreground">Withholding Tax (BIR)</label>
+                                                <Select value={newBirMode} onValueChange={(v: DeductionOverrideMode) => setNewBirMode(v)}>
+                                                    <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="auto">Auto-compute</SelectItem>
+                                                        <SelectItem value="exempt">Exempt</SelectItem>
+                                                        <SelectItem value="percentage">Custom %</SelectItem>
+                                                        <SelectItem value="fixed">Fixed Amount</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                {(newBirMode === "percentage" || newBirMode === "fixed") && (
+                                                    <Input
+                                                        type="number"
+                                                        placeholder={newBirMode === "percentage" ? "e.g. 15" : "e.g. 3000"}
+                                                        value={newBirValue}
+                                                        onChange={(e) => setNewBirValue(e.target.value)}
+                                                        className="mt-1 h-8 text-sm"
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div className="flex items-center justify-end gap-2 px-6 py-4 border-t bg-muted/20">
                                     <Button variant="outline" onClick={() => setAddOpen(false)} className="h-8 text-sm">Cancel</Button>
@@ -839,6 +1094,139 @@ export default function AdminEmployeesView() {
                                     <Select value={editProjectId || "none"} onValueChange={setEditProjectId}><SelectTrigger className="mt-1"><SelectValue placeholder="Select project" /></SelectTrigger><SelectContent><SelectItem value="none">No Project</SelectItem>{projects.filter(p => p.status !== "completed" && p.id).map((p) => <SelectItem key={p.id} value={p.id}>{p.name} {p.assignedEmployeeIds.includes(editingEmp?.id || "") ? "✓" : ""}</SelectItem>)}</SelectContent></Select>
                                     <p className="text-xs text-muted-foreground mt-1">Assigned project defines geofence for attendance check-in</p>
                                 </div>
+
+                                {/* Deduction/Allowance Templates */}
+                                <div className="rounded-lg border bg-card">
+                                    <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-muted/40 rounded-t-lg">
+                                        <Receipt className="h-3.5 w-3.5 text-muted-foreground" />
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Deduction/Allowance</span>
+                                        <span className="ml-auto text-[10px] font-normal text-muted-foreground/60">optional</span>
+                                    </div>
+                                    <div className="p-4 space-y-2">
+                                        {activeTemplates.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground">No active templates available. Create templates in Payroll → Deduction/Allowance first.</p>
+                                        ) : (
+                                            activeTemplates.map((t) => (
+                                                <label key={t.id} className="flex items-center gap-2 cursor-pointer">
+                                                    <Checkbox
+                                                        checked={editDeductionTemplateIds.includes(t.id)}
+                                                        onCheckedChange={(checked) => {
+                                                            if (checked) setEditDeductionTemplateIds([...editDeductionTemplateIds, t.id]);
+                                                            else setEditDeductionTemplateIds(editDeductionTemplateIds.filter(id => id !== t.id));
+                                                        }}
+                                                    />
+                                                    <span className="text-sm">{t.name}</span>
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${t.type === "allowance" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                                                        {t.type}
+                                                    </span>
+                                                    <span className="text-xs text-muted-foreground ml-auto">
+                                                        {t.calculationMode === "percentage" ? `${t.value}%` : `₱${t.value.toLocaleString()}`}
+                                                    </span>
+                                                </label>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Tax Settings */}
+                                <div className="rounded-lg border bg-card">
+                                    <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-muted/40 rounded-t-lg">
+                                        <Calculator className="h-3.5 w-3.5 text-muted-foreground" />
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tax Settings</span>
+                                        <span className="ml-auto text-[10px] font-normal text-muted-foreground/60">optional — defaults to auto</span>
+                                    </div>
+                                    <div className="p-4 grid grid-cols-2 gap-4">
+                                        {/* SSS */}
+                                        <div>
+                                            <label className="text-xs font-medium text-muted-foreground">SSS</label>
+                                            <Select value={editSssMode} onValueChange={(v: DeductionOverrideMode) => setEditSssMode(v)}>
+                                                <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="auto">Auto-compute</SelectItem>
+                                                    <SelectItem value="exempt">Exempt</SelectItem>
+                                                    <SelectItem value="percentage">Custom %</SelectItem>
+                                                    <SelectItem value="fixed">Fixed Amount</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            {(editSssMode === "percentage" || editSssMode === "fixed") && (
+                                                <Input
+                                                    type="number"
+                                                    placeholder={editSssMode === "percentage" ? "e.g. 4.5" : "e.g. 1000"}
+                                                    value={editSssValue}
+                                                    onChange={(e) => setEditSssValue(e.target.value)}
+                                                    className="mt-1 h-8 text-sm"
+                                                />
+                                            )}
+                                        </div>
+                                        {/* PhilHealth */}
+                                        <div>
+                                            <label className="text-xs font-medium text-muted-foreground">PhilHealth</label>
+                                            <Select value={editPhilhealthMode} onValueChange={(v: DeductionOverrideMode) => setEditPhilhealthMode(v)}>
+                                                <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="auto">Auto-compute</SelectItem>
+                                                    <SelectItem value="exempt">Exempt</SelectItem>
+                                                    <SelectItem value="percentage">Custom %</SelectItem>
+                                                    <SelectItem value="fixed">Fixed Amount</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            {(editPhilhealthMode === "percentage" || editPhilhealthMode === "fixed") && (
+                                                <Input
+                                                    type="number"
+                                                    placeholder={editPhilhealthMode === "percentage" ? "e.g. 2.0" : "e.g. 500"}
+                                                    value={editPhilhealthValue}
+                                                    onChange={(e) => setEditPhilhealthValue(e.target.value)}
+                                                    className="mt-1 h-8 text-sm"
+                                                />
+                                            )}
+                                        </div>
+                                        {/* Pag-IBIG */}
+                                        <div>
+                                            <label className="text-xs font-medium text-muted-foreground">Pag-IBIG</label>
+                                            <Select value={editPagibigMode} onValueChange={(v: DeductionOverrideMode) => setEditPagibigMode(v)}>
+                                                <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="auto">Auto-compute</SelectItem>
+                                                    <SelectItem value="exempt">Exempt</SelectItem>
+                                                    <SelectItem value="percentage">Custom %</SelectItem>
+                                                    <SelectItem value="fixed">Fixed Amount</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            {(editPagibigMode === "percentage" || editPagibigMode === "fixed") && (
+                                                <Input
+                                                    type="number"
+                                                    placeholder={editPagibigMode === "percentage" ? "e.g. 2.0" : "e.g. 200"}
+                                                    value={editPagibigValue}
+                                                    onChange={(e) => setEditPagibigValue(e.target.value)}
+                                                    className="mt-1 h-8 text-sm"
+                                                />
+                                            )}
+                                        </div>
+                                        {/* BIR */}
+                                        <div>
+                                            <label className="text-xs font-medium text-muted-foreground">Withholding Tax (BIR)</label>
+                                            <Select value={editBirMode} onValueChange={(v: DeductionOverrideMode) => setEditBirMode(v)}>
+                                                <SelectTrigger className="mt-1 h-8 text-sm"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="auto">Auto-compute</SelectItem>
+                                                    <SelectItem value="exempt">Exempt</SelectItem>
+                                                    <SelectItem value="percentage">Custom %</SelectItem>
+                                                    <SelectItem value="fixed">Fixed Amount</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            {(editBirMode === "percentage" || editBirMode === "fixed") && (
+                                                <Input
+                                                    type="number"
+                                                    placeholder={editBirMode === "percentage" ? "e.g. 15" : "e.g. 3000"}
+                                                    value={editBirValue}
+                                                    onChange={(e) => setEditBirValue(e.target.value)}
+                                                    className="mt-1 h-8 text-sm"
+                                                />
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <Button onClick={handleSaveEdit} className="w-full">Save Changes</Button>
                             </div>
                         </DialogContent>

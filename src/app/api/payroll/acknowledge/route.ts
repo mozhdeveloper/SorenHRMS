@@ -80,36 +80,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (payslip.acknowledged_at) {
+    // In the simplified flow, "acknowledge" is now just confirming receipt.
+    // The signing step already transitions the payslip to "signed".
+    // If already signed, just record acknowledged_at timestamp.
+    if (payslip.status === "signed" && payslip.acknowledged_at) {
       return NextResponse.json(
         { ok: false, message: "Payslip already acknowledged" },
         { status: 409 }
       );
     }
 
-    if (payslip.status !== "paid") {
+    if (payslip.status !== "signed" && payslip.status !== "published") {
       return NextResponse.json(
-        { ok: false, message: `Cannot acknowledge payslip in "${payslip.status}" status. Must be paid.` },
+        { ok: false, message: `Cannot acknowledge payslip in "${payslip.status}" status.` },
         { status: 400 }
       );
     }
 
-    if (!payslip.signed_at) {
-      return NextResponse.json(
-        { ok: false, message: "Must sign payslip before acknowledging" },
-        { status: 400 }
-      );
-    }
-
-    // Update payslip
+    // Update payslip — record acknowledgement timestamp (status stays "signed")
     const now = new Date().toISOString();
+    const updates: Record<string, string> = { acknowledged_at: now, acknowledged_by: employeeId };
+    // If not yet signed (published), transition to signed
+    if (payslip.status === "published") {
+      (updates as Record<string, string>).status = "signed";
+    }
+
     const { data: updatedPayslip, error: updateErr } = await supabase
       .from("payslips")
-      .update({
-        status: "acknowledged",
-        acknowledged_at: now,
-        acknowledged_by: employeeId,
-      })
+      .update(updates)
       .eq("id", payslipId)
       .select()
       .single();

@@ -28,11 +28,9 @@ import { keysToCamel } from "@/lib/db-utils";
    ═══════════════════════════════════════════════════════════════ */
 
 const statusConfig: Record<string, { label: string; color: string; icon: typeof Clock; step: number }> = {
-    issued:       { label: "Issued",       color: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400", icon: CheckCircle,   step: 1 },
-    confirmed:    { label: "Confirmed",    color: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400",          icon: CheckCircle,   step: 2 },
-    published:    { label: "Published",    color: "bg-violet-500/15 text-violet-700 dark:text-violet-400",    icon: FileSignature, step: 3 },
-    paid:         { label: "Paid",         color: "bg-blue-500/15 text-blue-700 dark:text-blue-400",          icon: ShieldCheck,   step: 4 },
-    acknowledged: { label: "Acknowledged", color: "bg-teal-500/15 text-teal-700 dark:text-teal-400",          icon: CheckCircle,   step: 5 },
+    draft:     { label: "Draft",     color: "bg-amber-500/15 text-amber-700 dark:text-amber-400",   icon: Clock,         step: 1 },
+    published: { label: "Published", color: "bg-violet-500/15 text-violet-700 dark:text-violet-400", icon: FileSignature, step: 2 },
+    signed:    { label: "Signed",    color: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400", icon: CheckCircle, step: 3 },
 };
 
 export default function EmployeePayrollView() {
@@ -66,9 +64,9 @@ export default function EmployeePayrollView() {
     // ─── Computed stats ───────────────────────────────────────────
     const totalEarned = useMemo(() => myPayslips.reduce((s, p) => s + p.netPay, 0), [myPayslips]);
     const latestPayslip = myPayslips[0];
-    // Employees can sign once payslip is issued (any status that isn't "acknowledged" and not yet signed)
-    const pendingSign = useMemo(() => myPayslips.filter((p) => ["issued", "confirmed", "published", "paid"].includes(p.status) && !p.signedAt), [myPayslips]);
-    const pendingAck = useMemo(() => myPayslips.filter((p) => p.status === "paid" && !!p.signedAt && !p.acknowledgedAt), [myPayslips]);
+    // Employees can sign once payslip is published (simplified flow: published → signed)
+    const pendingSign = useMemo(() => myPayslips.filter((p) => p.status === "published" && !p.signedAt), [myPayslips]);
+    const pendingAck = useMemo(() => [] as typeof myPayslips, []);
 
     // ─── E-Sign handler (calls API first, then updates store with server data) ───
     const handleSign = useCallback(async (payslipId: string, signatureDataUrl: string) => {
@@ -305,10 +303,9 @@ export default function EmployeePayrollView() {
                                                 </TableCell>
                                             </TableRow>
                                         ) : myPayslips.map((ps) => {
-                                            const sc = statusConfig[ps.status] || statusConfig.issued;
+                                            const sc = statusConfig[ps.status] || statusConfig.draft;
                                             const totalDed = (ps.sssDeduction || 0) + (ps.philhealthDeduction || 0) + (ps.pagibigDeduction || 0) + (ps.taxDeduction || 0) + (ps.otherDeductions || 0) + (ps.loanDeduction || 0);
-                                            const canSign = ["issued", "confirmed", "published", "paid"].includes(ps.status) && !ps.signedAt;
-                                            const canAck = ps.status === "paid" && !!ps.signedAt && !ps.acknowledgedAt;
+                                            const canSign = ps.status === "published" && !ps.signedAt;
                                             return (
                                                 <TableRow key={ps.id}>
                                                     <TableCell className="text-xs text-muted-foreground">{ps.periodStart} – {ps.periodEnd}</TableCell>
@@ -321,29 +318,11 @@ export default function EmployeePayrollView() {
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell>
-                                                        {ps.acknowledgedAt ? (
-                                                            <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400" title={`Acknowledged ${new Date(ps.acknowledgedAt).toLocaleString()}`}>
-                                                                <ShieldCheck className="h-3.5 w-3.5" />
-                                                                <span className="text-[10px] font-medium">Done</span>
+                                                        {ps.status === "signed" || ps.signedAt ? (
+                                                            <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400" title={`Signed ${ps.signedAt ? new Date(ps.signedAt).toLocaleString() : ""}`}>
+                                                                <CheckCircle className="h-3.5 w-3.5" />
+                                                                <span className="text-[10px] font-medium">Signed</span>
                                                             </span>
-                                                        ) : ps.signedAt ? (
-                                                            <div className="flex items-center gap-1.5">
-                                                                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400" title={`Signed ${new Date(ps.signedAt).toLocaleString()}`}>
-                                                                    <CheckCircle className="h-3.5 w-3.5" />
-                                                                    <span className="text-[10px] font-medium">Signed</span>
-                                                                </span>
-                                                                {canAck && (
-                                                                    <Button
-                                                                        variant="ghost" size="sm"
-                                                                        className="h-6 gap-1 text-blue-600 dark:text-blue-400 px-1.5"
-                                                                        disabled={acknowledging}
-                                                                        onClick={() => handleAcknowledge(ps.id)}
-                                                                    >
-                                                                        <ShieldCheck className="h-3 w-3" />
-                                                                        <span className="text-[9px]">Acknowledge</span>
-                                                                    </Button>
-                                                                )}
-                                                            </div>
                                                         ) : canSign ? (
                                                             <Button
                                                                 variant="ghost" size="sm"
@@ -473,7 +452,7 @@ export default function EmployeePayrollView() {
 
                                     {/* Status Progress */}
                                     <div className="flex items-center gap-1 py-2">
-                                        {["issued", "confirmed", "published", "paid", "acknowledged"].map((step, i) => {
+                                        {["draft", "published", "signed"].map((step, i) => {
                                             const currentStep = statusConfig[viewedPayslip.status]?.step || 1;
                                             const stepNum = i + 1;
                                             const isActive = stepNum <= currentStep;
@@ -544,7 +523,7 @@ export default function EmployeePayrollView() {
                                                     <CheckCircle className="h-3 w-3 text-emerald-500" />
                                                     Signed on {new Date(viewedPayslip.signedAt).toLocaleString()}
                                                 </p>
-                                                {viewedPayslip.status === "paid" && !viewedPayslip.acknowledgedAt && (
+                                                {viewedPayslip.status === "published" && !viewedPayslip.acknowledgedAt && (
                                                     <Button
                                                         size="sm" className="w-full gap-1.5 mt-2"
                                                         disabled={acknowledging}
@@ -562,7 +541,7 @@ export default function EmployeePayrollView() {
                                                     </div>
                                                 )}
                                             </div>
-                                        ) : ["published", "paid"].includes(viewedPayslip.status) ? (
+                                        ) : viewedPayslip.status === "published" ? (
                                             <div className="space-y-2">
                                                 <Button
                                                     className="w-full gap-2 bg-violet-600 hover:bg-violet-700 text-white"

@@ -239,7 +239,7 @@ export default function ViewerProfileView() {
                                                     <TableCell className="text-sm">{ps.periodStart} – {ps.periodEnd}</TableCell>
                                                     <TableCell className="text-sm font-medium">{formatCurrency(ps.netPay)}</TableCell>
                                                     <TableCell className="text-sm">{ps.issuedAt}</TableCell>
-                                                    <TableCell><Badge variant="secondary" className={`text-[10px] ${ps.status === "confirmed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-amber-500/15 text-amber-700 dark:text-amber-400"}`}>{ps.status}</Badge></TableCell>
+                                                    <TableCell><Badge variant="secondary" className={`text-[10px] ${ps.status === "signed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : ps.status === "published" ? "bg-violet-500/15 text-violet-700 dark:text-violet-400" : "bg-amber-500/15 text-amber-700 dark:text-amber-400"}`}>{ps.status}</Badge></TableCell>
                                                 </TableRow>
                                             ))}
                                         </TableBody>
