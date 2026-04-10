@@ -17,7 +17,9 @@ import {
     LogOut,
     Clock,
     CheckCheck,
+    Settings,
 } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -290,8 +292,10 @@ export function Topbar() {
                         <DropdownMenuContent align="end" className="w-56">
                             <DropdownMenuLabel className="truncate max-w-[200px] font-normal text-muted-foreground text-xs" title={currentUser.email}>{currentUser.email}</DropdownMenuLabel>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => router.push(`${rolePrefix}/settings`)}>
-                                Settings
+                            <DropdownMenuItem asChild>
+                                <Link href={`${rolePrefix}/settings`} className="flex items-center gap-2 cursor-pointer">
+                                    <Settings className="h-4 w-4" /> Settings
+                                </Link>
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
