@@ -285,7 +285,10 @@ function ChartDeptDistribution() {
     const data = useMemo(() => {
         const deptCount: Record<string, number> = {};
         employees.filter((e) => e.status === "active").forEach((e) => {
-            deptCount[e.department] = (deptCount[e.department] || 0) + 1;
+            // Normalize department name - skip if empty/undefined
+            const dept = e.department?.trim();
+            if (!dept) return;
+            deptCount[dept] = (deptCount[dept] || 0) + 1;
         });
         return Object.entries(deptCount).map(([name, value]) => ({ name, value }));
     }, [employees]);
