@@ -234,7 +234,7 @@ export function Sidebar() {
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
+            <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto thin-scrollbar">
                 {filtered.systemItems.map((item) => {
                     const Icon = iconMap[item.icon];
                     const fullHref = item.absolute ? item.href : `${rolePrefix}${item.href}`;
