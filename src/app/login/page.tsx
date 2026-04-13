@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth.store";
 import { useAppearanceStore } from "@/store/appearance.store";
+import { useEmployeesStore } from "@/store/employees.store";
 import { signIn } from "@/services/auth.service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ export default function LoginPage() {
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
     const [showPayrollAccounts, setShowPayrollAccounts] = useState(false);
+    const employees = useEmployeesStore((s) => s.employees);
 
     // Branding from appearance store
     const loginHeading = useAppearanceStore((s) => s.loginHeading);
@@ -82,6 +84,8 @@ export default function LoginPage() {
                 // Redirect immediately — client-layout will handle store hydration
                 toast.success("Welcome back!");
                 router.push(`/${result.user.role}/dashboard`);
+            } else if (result.error === "deactivated") {
+                router.push("/deactivated");
             } else {
                 toast.error(result.error || "Invalid email or password");
                 setLoading(false);
@@ -95,6 +99,15 @@ export default function LoginPage() {
     const handleDemoLogin = (loginEmail: string, loginPassword: string) => {
         setLoading(true);
         setTimeout(() => {
+            // Check employee status before allowing demo login
+            const emp = employees.find(
+                (e) => e.email?.toLowerCase() === loginEmail.toLowerCase()
+            );
+            if (emp && (emp.status === "inactive" || emp.status === "resigned")) {
+                setLoading(false);
+                router.push("/deactivated");
+                return;
+            }
             const success = localLogin(loginEmail, loginPassword);
             if (success) {
                 toast.success("Welcome back!");

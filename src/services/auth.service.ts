@@ -47,6 +47,15 @@ export async function signIn(email: string, password: string) {
     }
   }
 
+  // Block deactivated or resigned employees before granting a session
+  if (employee && (employee.status === "inactive" || employee.status === "resigned")) {
+    await supabase.auth.signOut();
+    return {
+      ok: false as const,
+      error: "deactivated",
+    };
+  }
+
   return {
     ok: true as const,
     user: {
