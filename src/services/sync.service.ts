@@ -272,16 +272,16 @@ async function hydrateAllStoresInternal(): Promise<void> {
       });
     }
 
-    // Hydrate tasks store
-    if (taskGroups.length > 0 || tasks.length > 0 || completionReports.length > 0 || taskComments.length > 0 || taskTagsList.length > 0) {
-      useTasksStore.setState({
-        ...(taskGroups.length > 0 ? { groups: taskGroups } : {}),
-        ...(tasks.length > 0 ? { tasks } : {}),
-        ...(completionReports.length > 0 ? { completionReports } : {}),
-        ...(taskComments.length > 0 ? { comments: taskComments } : {}),
-        ...(taskTagsList.length > 0 ? { taskTags: taskTagsList } : {}),
-      });
-    }
+    // Hydrate tasks store — always set groups and tasks from DB so stale
+    // seed/localStorage data never hides real assignments.  Completion
+    // reports, comments, and tags are only replaced when DB has rows.
+    useTasksStore.setState({
+      groups: taskGroups,
+      tasks,
+      ...(completionReports.length > 0 ? { completionReports } : {}),
+      ...(taskComments.length > 0 ? { comments: taskComments } : {}),
+      ...(taskTagsList.length > 0 ? { taskTags: taskTagsList } : {}),
+    });
 
     // Hydrate timesheet store
     if (timesheets.length > 0 || ruleSets.length > 0) {
@@ -735,58 +735,63 @@ export function startWriteThrough(): void {
   );
 
   // ─── Tasks write-through ──────────────────────────────────
+  // Groups MUST be persisted before tasks because tasks have a FK on group_id.
+  // We use an async IIFE to await all group upserts before touching tasks,
+  // preventing FK-violation silent failures when both are created together.
   _subscriptions.push(
     useTasksStore.subscribe(
       (state, prevState) => {
-        // Task groups
-        for (const g of state.groups) {
-          const prev = prevState.groups.find((pg) => pg.id === g.id);
-          if (!prev || JSON.stringify(prev) !== JSON.stringify(g)) {
-            tasksDb.upsertGroup(g);
+        void (async () => {
+          // Task groups — await all upserts/deletes before tasks
+          for (const g of state.groups) {
+            const prev = prevState.groups.find((pg) => pg.id === g.id);
+            if (!prev || JSON.stringify(prev) !== JSON.stringify(g)) {
+              await tasksDb.upsertGroup(g);
+            }
           }
-        }
-        for (const prev of prevState.groups) {
-          if (!state.groups.find((g) => g.id === prev.id)) {
-            tasksDb.deleteGroup(prev.id);
+          for (const prev of prevState.groups) {
+            if (!state.groups.find((g) => g.id === prev.id)) {
+              await tasksDb.deleteGroup(prev.id);
+            }
           }
-        }
-        // Tasks
-        for (const t of state.tasks) {
-          const prev = prevState.tasks.find((pt) => pt.id === t.id);
-          if (!prev || JSON.stringify(prev) !== JSON.stringify(t)) {
-            tasksDb.upsertTask(t);
+          // Tasks — safe to run now that groups are committed
+          for (const t of state.tasks) {
+            const prev = prevState.tasks.find((pt) => pt.id === t.id);
+            if (!prev || JSON.stringify(prev) !== JSON.stringify(t)) {
+              tasksDb.upsertTask(t);
+            }
           }
-        }
-        for (const prev of prevState.tasks) {
-          if (!state.tasks.find((t) => t.id === prev.id)) {
-            tasksDb.deleteTask(prev.id);
+          for (const prev of prevState.tasks) {
+            if (!state.tasks.find((t) => t.id === prev.id)) {
+              tasksDb.deleteTask(prev.id);
+            }
           }
-        }
-        // Completion reports
-        for (const r of state.completionReports) {
-          const prev = prevState.completionReports.find((pr) => pr.id === r.id);
-          if (!prev || JSON.stringify(prev) !== JSON.stringify(r)) {
-            tasksDb.upsertCompletionReport(r);
+          // Completion reports
+          for (const r of state.completionReports) {
+            const prev = prevState.completionReports.find((pr) => pr.id === r.id);
+            if (!prev || JSON.stringify(prev) !== JSON.stringify(r)) {
+              tasksDb.upsertCompletionReport(r);
+            }
           }
-        }
-        // Comments (append-only)
-        for (const c of state.comments) {
-          if (!prevState.comments.find((pc) => pc.id === c.id)) {
-            tasksDb.insertComment(c);
+          // Comments (append-only)
+          for (const c of state.comments) {
+            if (!prevState.comments.find((pc) => pc.id === c.id)) {
+              tasksDb.insertComment(c);
+            }
           }
-        }
-        // Task tags
-        for (const tag of state.taskTags) {
-          const prev = prevState.taskTags.find((pt) => pt.id === tag.id);
-          if (!prev || JSON.stringify(prev) !== JSON.stringify(tag)) {
-            tasksDb.upsertTag(tag);
+          // Task tags
+          for (const tag of state.taskTags) {
+            const prev = prevState.taskTags.find((pt) => pt.id === tag.id);
+            if (!prev || JSON.stringify(prev) !== JSON.stringify(tag)) {
+              tasksDb.upsertTag(tag);
+            }
           }
-        }
-        for (const prev of prevState.taskTags) {
-          if (!state.taskTags.find((t) => t.id === prev.id)) {
-            tasksDb.deleteTag(prev.id);
+          for (const prev of prevState.taskTags) {
+            if (!state.taskTags.find((t) => t.id === prev.id)) {
+              tasksDb.deleteTag(prev.id);
+            }
           }
-        }
+        })();
       }
     )
   );
