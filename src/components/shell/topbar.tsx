@@ -54,22 +54,23 @@ export function Topbar() {
     const employees = useEmployeesStore((s) => s.employees);
     const router = useRouter();
     const [cmdOpen, setCmdOpen] = useState(false);
-    const getUnreadCountForEmployee = useNotificationsStore((s) => s.getUnreadCountForEmployee);
-    const getUnreadNotificationsForEmployee = useNotificationsStore((s) => s.getUnreadNotificationsForEmployee);
+    const notifLogs = useNotificationsStore((s) => s.logs);
     const markAsRead = useNotificationsStore((s) => s.markAsRead);
+    const markAllAsRead = useNotificationsStore((s) => s.markAllAsRead);
     const companyName = useAppearanceStore((s) => s.companyName);
     const showCompanyNameInTopbar = useAppearanceStore((s) => s.showCompanyNameInTopbar);
     const accentBadgeText = useAppearanceStore((s) => s.accentBadgeText);
-    const markAllAsRead = useNotificationsStore((s) => s.markAllAsRead);
     const rolePrefix = `/${currentUser.role}`;
 
     // Get current employee ID for notification count
     const currentEmployeeId = employees.find(
         (e) => e.profileId === currentUser.id || e.email?.toLowerCase() === currentUser.email?.toLowerCase() || e.name === currentUser.name
     )?.id;
-    const notifCount = currentEmployeeId ? getUnreadCountForEmployee(currentEmployeeId) : 0;
-    const recentNotifications = currentEmployeeId 
-        ? getUnreadNotificationsForEmployee(currentEmployeeId).slice(0, 5) 
+    const notifCount = currentEmployeeId
+        ? notifLogs.filter((l) => l.employeeId === currentEmployeeId && !l.read).length
+        : 0;
+    const recentNotifications = currentEmployeeId
+        ? notifLogs.filter((l) => l.employeeId === currentEmployeeId && !l.read).slice(0, 5)
         : [];
 
     const handleNotificationItemClick = (notificationId: string, link?: string) => {

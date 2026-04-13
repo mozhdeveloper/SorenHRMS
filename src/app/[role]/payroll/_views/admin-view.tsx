@@ -458,7 +458,7 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
         draftSlips.forEach((ps) => {
             publishPayslip(ps.id);
             useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payroll_published", performedBy: currentUser.id });
-            dispatchNotification("payslip_published", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}` }, ps.employeeId);
+            dispatchNotification("payslip_published", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
         });
         toast.success(`Published ${draftSlips.length} payslip${draftSlips.length > 1 ? "s" : ""}`);
         } catch (err) {
@@ -476,7 +476,7 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
         signedSlips.forEach((ps) => {
             recordPayment(ps.id, "bank_transfer", `BATCH-REF-${Date.now()}-${ps.id}`);
             useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payment_recorded", performedBy: currentUser.id });
-            dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}` }, ps.employeeId);
+            dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
         });
         toast.success(`Recorded payment for ${signedSlips.length} payslip${signedSlips.length > 1 ? "s" : ""}`);
         } catch (err) {
@@ -939,7 +939,7 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                                             <Button variant="ghost" size="icon" className="h-7 w-7 text-violet-600" title="Publish" onClick={() => {
                                                                 publishPayslip(ps.id);
                                                                 useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payroll_published", performedBy: currentUser.id });
-                                                                dispatchNotification("payslip_published", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}` }, ps.employeeId);
+                                                                dispatchNotification("payslip_published", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
                                                                 toast.success("Published");
                                                             }}><Send className="h-3.5 w-3.5" /></Button>
                                                         )}
@@ -947,7 +947,7 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                                             <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600" title="Record Payment" onClick={() => {
                                                                 recordPayment(ps.id, "bank_transfer", `REF-${Date.now()}`);
                                                                 useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payment_recorded", performedBy: currentUser.id });
-                                                                dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}` }, ps.employeeId);
+                                                                dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
                                                                 toast.success("Payment recorded");
                                                             }}><CreditCard className="h-3.5 w-3.5" /></Button>
                                                         )}
