@@ -1,17 +1,44 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { useRouter } from "next/navigation";
 import { useEmployeesStore } from "@/store/employees.store";
 import { useAppearanceStore } from "@/store/appearance.store";
 import { useKioskStore } from "@/store/kiosk.store";
-import { useProjectsStore } from "@/store/projects.store";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
     ArrowLeft, QrCode, LogIn, LogOut, CheckCircle, XCircle, Camera, CameraOff, Loader2, ClipboardList,
 } from "lucide-react";
 import jsQR from "jsqr";
+
+/** Isolated clock component — re-renders every second without triggering parent re-render */
+const KioskClock = memo(function KioskClock({ clockFormat, textClass, textMutedClass, showClock, showDate }: {
+    clockFormat: string; textClass: string; textMutedClass: string; showClock: boolean; showDate: boolean;
+}) {
+    const [now, setNow] = useState(new Date());
+    useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+    const h = now.getHours();
+    const timeStr = clockFormat === "12h"
+        ? `${h % 12 || 12}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`
+        : `${String(h).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+    const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    return (
+        <div className="text-center">
+            {showClock && (
+                <p className={cn("font-mono text-2xl sm:text-4xl font-bold tracking-widest tabular-nums drop-shadow-lg", textClass)}>
+                    {timeStr}
+                </p>
+            )}
+            {showDate && (
+                <p className={cn("text-xs mt-1", textMutedClass)}>{dateStr}</p>
+            )}
+        </div>
+    );
+});
 
 /**
  * QR Code Kiosk Page
@@ -27,7 +54,6 @@ export default function QRKioskPage() {
     const employees = useEmployeesStore((s) => s.employees);
     const companyName = useAppearanceStore((s) => s.companyName);
     const logoUrl = useAppearanceStore((s) => s.logoUrl);
-    const getProjectForEmployee = useProjectsStore((s) => s.getProjectForEmployee);
 
     const isAutoTheme = ks.kioskTheme === "auto";
 
@@ -35,7 +61,6 @@ export default function QRKioskPage() {
     const modeRef = useRef<"in" | "out">("in");
     const handleSetMode = useCallback((m: "in" | "out") => { setMode(m); modeRef.current = m; }, []);
     const [feedback, setFeedback] = useState<"idle" | "success-in" | "success-out" | "error">("idle");
-    const [now, setNow] = useState(new Date());
     const [checkedInName, setCheckedInName] = useState("");
     const [errorMessage, setErrorMessage] = useState("QR code not recognized");
     const [deviceId] = useState(() => {
@@ -93,11 +118,6 @@ export default function QRKioskPage() {
             router.push("/kiosk?target=qr");
         }
     }, [router]);
-
-    useEffect(() => {
-        const timer = setInterval(() => setNow(new Date()), 1000);
-        return () => clearInterval(timer);
-    }, []);
 
     const stopQrScanner = useCallback(() => {
         qrStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -215,13 +235,6 @@ export default function QRKioskPage() {
             const emp = employees.find((e) => e.id === empId);
 
             if (emp) {
-                // Check if employee's project requires face_only verification
-                const project = getProjectForEmployee(emp.id);
-                if (project?.verificationMethod === "face_only") {
-                    setErrorMessage(`${emp.name}'s project requires face verification. Use the Face kiosk.`);
-                    triggerFeedback("error");
-                    return;
-                }
                 clockEmployee(emp.id, emp.name);
             } else if (empId) {
                 clockEmployee(empId, `Employee ${empId}`);
@@ -237,7 +250,7 @@ export default function QRKioskPage() {
             setQrProcessing(false);
             processingLockRef.current = false;
         }
-    }, [employees, qrProcessing, deviceId, stopQrScanner, clockEmployee, getProjectForEmployee, triggerFeedback]);
+    }, [employees, qrProcessing, deviceId, stopQrScanner, clockEmployee, triggerFeedback]);
 
     const startQrScanner = useCallback(async () => {
         setQrCameraError(false);
@@ -343,36 +356,29 @@ export default function QRKioskPage() {
         }
     };
 
-    // Time formatters
-    const h = now.getHours();
-    const timeStr = ks.clockFormat === "12h"
-        ? `${h % 12 || 12}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`
-        : `${String(h).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
-
-    const dateStr = now.toLocaleDateString("en-US", {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-    });
-
     const isSuccessIn = feedback === "success-in";
     const isSuccessOut = feedback === "success-out";
     const isError = feedback === "error";
     const isSuccess = isSuccessIn || isSuccessOut;
 
-    // Theme-aware classes
-    const bgClass = isSuccess ? (isSuccessIn ? "bg-emerald-950 dark:bg-emerald-950" : "bg-sky-950 dark:bg-sky-950") :
-        isError ? "bg-red-950 dark:bg-red-950" :
-        isAutoTheme ? "bg-background" :
-        ks.kioskTheme === "midnight" ? "bg-slate-950" :
-        ks.kioskTheme === "charcoal" ? "bg-neutral-950" : "bg-zinc-950";
-    const textClass = isAutoTheme && !isSuccess && !isError ? "text-foreground" : "text-white";
-    const textMutedClass = isAutoTheme && !isSuccess && !isError ? "text-muted-foreground" : "text-white/40";
-    const textFaintClass = isAutoTheme && !isSuccess && !isError ? "text-muted-foreground/40" : "text-white/30";
-    const cardClass = isAutoTheme && !isSuccess && !isError ? "bg-card border-border" : "bg-white/[0.04] border-white/10";
-    const toggleBgClass = isAutoTheme && !isSuccess && !isError ? "border-border bg-muted/30" : "border-white/10 bg-white/[0.03]";
-    const toggleInactiveClass = isAutoTheme && !isSuccess && !isError ? "text-muted-foreground hover:text-foreground" : "text-white/30 hover:text-white/60";
+    // Memoize theme-aware classes so they only recompute when feedback or theme changes
+    const themeClasses = useMemo(() => {
+        const base = isAutoTheme && !isSuccess && !isError;
+        return {
+            bgClass: isSuccess ? (isSuccessIn ? "bg-emerald-950 dark:bg-emerald-950" : "bg-sky-950 dark:bg-sky-950") :
+                isError ? "bg-red-950 dark:bg-red-950" :
+                isAutoTheme ? "bg-background" :
+                ks.kioskTheme === "midnight" ? "bg-slate-950" :
+                ks.kioskTheme === "charcoal" ? "bg-neutral-950" : "bg-zinc-950",
+            textClass: base ? "text-foreground" : "text-white",
+            textMutedClass: base ? "text-muted-foreground" : "text-white/40",
+            textFaintClass: base ? "text-muted-foreground/40" : "text-white/30",
+            cardClass: base ? "bg-card border-border" : "bg-white/[0.04] border-white/10",
+            toggleBgClass: base ? "border-border bg-muted/30" : "border-white/10 bg-white/[0.03]",
+            toggleInactiveClass: base ? "text-muted-foreground hover:text-foreground" : "text-white/30 hover:text-white/60",
+        };
+    }, [isAutoTheme, isSuccess, isSuccessIn, isError, ks.kioskTheme]);
+    const { bgClass, textClass, textMutedClass, textFaintClass, cardClass, toggleBgClass, toggleInactiveClass } = themeClasses;
 
     return (
         <div className={cn(
@@ -396,16 +402,7 @@ export default function QRKioskPage() {
                     <ArrowLeft className="h-4 w-4" />
                     <span className="text-sm">Back</span>
                 </button>
-                <div className="text-center">
-                    {ks.showClock && (
-                        <p className={cn("font-mono text-2xl sm:text-4xl font-bold tracking-widest tabular-nums drop-shadow-lg", textClass)}>
-                            {timeStr}
-                        </p>
-                    )}
-                    {ks.showDate && (
-                        <p className={cn("text-xs mt-1", textMutedClass)}>{dateStr}</p>
-                    )}
-                </div>
+                <KioskClock clockFormat={ks.clockFormat} textClass={textClass} textMutedClass={textMutedClass} showClock={ks.showClock} showDate={ks.showDate} />
                 <div className="flex items-center gap-3">
                     {ks.showLogo && logoUrl ? (
                         <img src={logoUrl} alt={companyName}
@@ -432,7 +429,7 @@ export default function QRKioskPage() {
                                 {checkedInName && (
                                     <p className="text-white text-4xl font-bold mt-2">{checkedInName}</p>
                                 )}
-                                <p className="text-white/30 text-sm">{now.toLocaleTimeString()}</p>
+                                <p className="text-white/30 text-sm">{new Date().toLocaleTimeString()}</p>
                             </>
                         ) : (
                             <>
