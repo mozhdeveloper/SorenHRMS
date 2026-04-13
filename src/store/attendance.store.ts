@@ -9,6 +9,8 @@ import type {
 } from "@/types";
 import { SEED_ATTENDANCE } from "@/data/seed";
 import { DEFAULT_HOLIDAYS } from "@/lib/constants";
+import { useNotificationsStore } from "@/store/notifications.store";
+import { useEmployeesStore } from "@/store/employees.store";
 
 interface AttendanceState {
     // ─── Append-only event ledger (§2A) ───────────────
@@ -448,18 +450,37 @@ export const useAttendanceStore = create<AttendanceState>()(
                 }),
 
             // ─── Overtime ─────────────────────────────────────────────
-            submitOvertimeRequest: (data) =>
+            submitOvertimeRequest: (data) => {
+                const id = `OT-${nanoid(8)}`;
                 set((s) => ({
                     overtimeRequests: [
                         ...s.overtimeRequests,
                         {
                             ...data,
-                            id: `OT-${nanoid(8)}`,
+                            id,
                             status: "pending" as const,
                             requestedAt: new Date().toISOString(),
                         },
                     ],
-                })),
+                }));
+                // Notify admin and supervisor employees
+                const employees = useEmployeesStore.getState().employees;
+                const requester = employees.find((e) => e.id === data.employeeId);
+                const requesterName = requester?.name ?? data.employeeId;
+                const approvers = employees.filter(
+                    (e) => (e.role === "admin" || e.role === "supervisor" || e.role === "hr") && e.status === "active" && e.id !== data.employeeId
+                );
+                approvers.forEach((approver) => {
+                    useNotificationsStore.getState().dispatch(
+                        "overtime_submitted",
+                        { name: requesterName, date: data.date ?? "" },
+                        approver.id,
+                        approver.email ?? undefined,
+                        undefined,
+                        "/attendance"
+                    );
+                });
+            },
             approveOvertime: (requestId, approverId) =>
                 set((s) => ({
                     overtimeRequests: s.overtimeRequests.map((r) =>

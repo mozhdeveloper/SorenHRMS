@@ -219,9 +219,20 @@ export default function NotificationsPage() {
                     <h1 className="text-2xl font-bold tracking-tight">Notification Log</h1>
                     <p className="text-sm text-muted-foreground mt-0.5">
                         {logs.length} notification{logs.length !== 1 ? "s" : ""} dispatched
+                        {unreadCount > 0 && <span className="ml-1 font-semibold text-primary">· {unreadCount} unread</span>}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
+                    {unreadCount > 0 && currentEmployeeId && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5"
+                            onClick={() => markAllAsRead(currentEmployeeId)}
+                        >
+                            <CheckCheck className="h-4 w-4" /> Mark All Read
+                        </Button>
+                    )}
                     <Link href={rh("/settings/notifications")}>
                         <Button variant="outline" size="sm" className="gap-1.5">
                             <Settings className="h-4 w-4" /> Rules
@@ -259,6 +270,7 @@ export default function NotificationsPage() {
                     <Table>
                         <TableHeader>
                             <TableRow>
+                                <TableHead className="text-xs w-4"></TableHead>
                                 <TableHead className="text-xs">Employee</TableHead>
                                 <TableHead className="text-xs">Type</TableHead>
                                 <TableHead className="text-xs">Channel</TableHead>
@@ -270,7 +282,7 @@ export default function NotificationsPage() {
                         <TableBody>
                             {logs.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-12">
+                                    <TableCell colSpan={7} className="text-center py-12">
                                         <Mail className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
                                         <p className="text-sm text-muted-foreground">No notifications dispatched yet</p>
                                         <p className="text-xs text-muted-foreground/60 mt-1">
@@ -280,8 +292,17 @@ export default function NotificationsPage() {
                                 </TableRow>
                             ) : (
                                 logs.map((log) => (
-                                    <TableRow key={log.id}>
-                                        <TableCell className="text-sm font-medium">{getEmpName(log.employeeId)}</TableCell>
+                                    <TableRow
+                                        key={log.id}
+                                        className={`cursor-pointer transition-colors hover:bg-muted/50 ${!log.read ? "bg-primary/5" : ""}`}
+                                        onClick={() => handleNotificationClick(log.id, log.link, log.read)}
+                                    >
+                                        <TableCell className="pr-0">
+                                            {!log.read && (
+                                                <span className="inline-block h-2 w-2 rounded-full bg-primary" />
+                                            )}
+                                        </TableCell>
+                                        <TableCell className={`text-sm ${!log.read ? "font-semibold" : "font-medium"}`}>{getEmpName(log.employeeId)}</TableCell>
                                         <TableCell>
                                             <Badge variant="secondary" className={`text-[10px] ${typeColors[log.type] || ""}`}>
                                                 {typeLabels[log.type] || log.type}
