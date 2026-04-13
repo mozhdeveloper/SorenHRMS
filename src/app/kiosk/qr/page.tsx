@@ -33,10 +33,7 @@ export default function QRKioskPage() {
 
     const [mode, setMode] = useState<"in" | "out">("in");
     const modeRef = useRef<"in" | "out">("in");
-    const handleSetMode = useCallback((m: "in" | "out") => {
-        setMode(m);
-        modeRef.current = m;
-    }, []);
+    const handleSetMode = useCallback((m: "in" | "out") => { setMode(m); modeRef.current = m; }, []);
     const [feedback, setFeedback] = useState<"idle" | "success-in" | "success-out" | "error">("idle");
     const [now, setNow] = useState(new Date());
     const [checkedInName, setCheckedInName] = useState("");
@@ -169,15 +166,14 @@ export default function QRKioskPage() {
 
     const clockEmployee = useCallback((empId: string, empName: string) => {
         // checkWorkDay for analytics (local only)
-        const currentMode = modeRef.current;
-        if (currentMode === "in") checkWorkDay(empId);
+        if (modeRef.current === "in") checkWorkDay(empId);
 
         // NOTE: DB write already happened in /api/attendance/validate-qr
         // We no longer call store checkIn/checkOut here to avoid double-writes
 
         // Activity log (local kiosk UI only)
         addToKioskLog(empName);
-        triggerFeedback(currentMode === "in" ? "success-in" : "success-out", empName);
+        triggerFeedback(modeRef.current === "in" ? "success-in" : "success-out", empName);
     }, [checkWorkDay, addToKioskLog, triggerFeedback]);
 
     const processQrPayload = useCallback(async (payload: string) => {
@@ -242,8 +238,6 @@ export default function QRKioskPage() {
             processingLockRef.current = false;
         }
     }, [employees, qrProcessing, deviceId, stopQrScanner, clockEmployee, getProjectForEmployee, triggerFeedback]);
-
-    const hasAutoStartedRef = useRef(false);
 
     const startQrScanner = useCallback(async () => {
         setQrCameraError(false);
@@ -317,16 +311,16 @@ export default function QRKioskPage() {
     // Keep startQrScannerRef in sync to avoid circular dependency with triggerFeedback
     startQrScannerRef.current = startQrScanner;
 
-    // Auto-start scanner when page loads (after PIN verification) — runs only once
+    // Auto-start scanner once on initial page load (after PIN verification).
+    // Using a ref guard prevents the effect from re-triggering when the user
+    // clicks Cancel (which sets qrScanning=false).
+    const hasAutoStartedRef = useRef(false);
     useEffect(() => {
         if (hasAutoStartedRef.current) return;
         const verified = sessionStorage.getItem("kiosk-pin-verified");
         if (verified && !qrScanning && feedback === "idle") {
             hasAutoStartedRef.current = true;
-            // Small delay to allow video element to mount
-            const timer = setTimeout(() => {
-                startQrScanner();
-            }, 500);
+            const timer = setTimeout(() => { startQrScanner(); }, 500);
             return () => clearTimeout(timer);
         }
     }, [startQrScanner, qrScanning, feedback]);
