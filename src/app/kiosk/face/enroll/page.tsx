@@ -228,7 +228,7 @@ export default function FaceEnrollPage() {
             setError(err instanceof Error ? err.message : "Network error");
             setState("error");
         }
-    }, [descriptor, referenceImage, currentUser.id, stopCamera, router]);
+    }, [descriptor, referenceImage, currentUser.id, employeeId, stopCamera, router]);
 
     return (
         <div className={cn(

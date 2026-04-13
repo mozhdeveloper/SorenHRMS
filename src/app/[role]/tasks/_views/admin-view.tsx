@@ -276,6 +276,7 @@ export default function AdminTasksView() {
             .map((t) => t.trim())
             .filter(Boolean);
 
+        try {
         if (editTask) {
             updateTask(editTask.id, {
                 title: taskForm.title.trim(),
@@ -309,12 +310,19 @@ export default function AdminTasksView() {
             setCreateOpen(false);
         }
         resetTaskForm();
+        } catch (err) {
+            toast.error(`Failed to save task: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     const handleDeleteTask = () => {
         if (deleteTaskId) {
-            deleteTask(deleteTaskId);
-            toast.success("Task deleted");
+            try {
+                deleteTask(deleteTaskId);
+                toast.success("Task deleted");
+            } catch (err) {
+                toast.error(`Failed to delete task: ${err instanceof Error ? err.message : "Unknown error"}`);
+            }
             setDeleteTaskId(null);
         }
     };
@@ -341,6 +349,7 @@ export default function AdminTasksView() {
         if (!groupForm.name.trim()) { toast.error("Group name is required"); return; }
         const nameNorm = groupForm.name.trim().toLowerCase();
 
+        try {
         if (editGroup) {
             // Check duplicate name excluding current group
             const conflict = groups.find((g) => g.id !== editGroup.id && g.name.toLowerCase() === nameNorm);
@@ -369,12 +378,19 @@ export default function AdminTasksView() {
             setGroupCreateOpen(false);
         }
         resetGroupForm();
+        } catch (err) {
+            toast.error(`Failed to save group: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     const handleDeleteGroup = () => {
         if (deleteGroupId) {
-            deleteGroup(deleteGroupId);
-            toast.success("Group and its tasks deleted");
+            try {
+                deleteGroup(deleteGroupId);
+                toast.success("Group and its tasks deleted");
+            } catch (err) {
+                toast.error(`Failed to delete group: ${err instanceof Error ? err.message : "Unknown error"}`);
+            }
             setDeleteGroupId(null);
         }
     };
@@ -393,6 +409,7 @@ export default function AdminTasksView() {
     const handleSaveTag = () => {
         if (!tagForm.name.trim()) { toast.error("Tag name is required"); return; }
         const nameNorm = tagForm.name.trim().toLowerCase();
+        try {
         if (editTag) {
             const conflict = taskTags.find((t) => t.id !== editTag.id && t.name.toLowerCase() === nameNorm);
             if (conflict) { toast.error(`Tag "${tagForm.name.trim()}" already exists`); return; }
@@ -407,12 +424,19 @@ export default function AdminTasksView() {
             setTagCreateOpen(false);
         }
         setTagForm({ name: "", color: "#6366f1" });
+        } catch (err) {
+            toast.error(`Failed to save tag: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     const handleDeleteTag = () => {
         if (deleteTagId) {
-            deleteTag(deleteTagId);
-            toast.success("Tag deleted");
+            try {
+                deleteTag(deleteTagId);
+                toast.success("Tag deleted");
+            } catch (err) {
+                toast.error(`Failed to delete tag: ${err instanceof Error ? err.message : "Unknown error"}`);
+            }
             setDeleteTagId(null);
         }
     };
@@ -428,10 +452,14 @@ export default function AdminTasksView() {
 
     const handleReject = () => {
         if (!rejectOpen || !rejectReason.trim()) { toast.error("Reason is required"); return; }
-        const report = completionReports.find((r) => r.taskId === rejectOpen);
-        if (report) {
-            rejectCompletion(report.id, rejectReason.trim());
-            toast.success("Task rejected");
+        try {
+            const report = completionReports.find((r) => r.taskId === rejectOpen);
+            if (report) {
+                rejectCompletion(report.id, rejectReason.trim());
+                toast.success("Task rejected");
+            }
+        } catch (err) {
+            toast.error(`Failed to reject task: ${err instanceof Error ? err.message : "Unknown error"}`);
         }
         setRejectOpen(null);
         setRejectReason("");

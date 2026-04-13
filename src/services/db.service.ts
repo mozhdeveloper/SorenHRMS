@@ -1135,7 +1135,7 @@ export async function hasValidSession(): Promise<boolean> {
     }
     
     return !!data.session?.access_token;
-  } catch (err) {
+  } catch (_err) {
     // Network or other error - assume no valid session
     return false;
   }

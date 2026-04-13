@@ -152,17 +152,27 @@ export const usePayrollStore = create<PayrollState>()(
 
             // ─── Payslip lifecycle (simplified: draft → published → signed) ───
             issuePayslip: (data) =>
-                set((s) => ({
-                    payslips: [
-                        ...s.payslips,
-                        {
-                            ...data,
-                            id: `PS-${nanoid(8)}`,
-                            status: "draft",
-                            issuedAt: data.issuedAt ?? new Date().toISOString().split("T")[0],
-                        },
-                    ],
-                })),
+                set((s) => {
+                    // Duplicate guard: skip if a payslip already exists for this employee + period
+                    const duplicate = s.payslips.find(
+                        (p) => p.employeeId === data.employeeId
+                            && p.periodStart === data.periodStart
+                            && p.periodEnd === data.periodEnd
+                            && p.payFrequency === data.payFrequency
+                    );
+                    if (duplicate) return {};
+                    return {
+                        payslips: [
+                            ...s.payslips,
+                            {
+                                ...data,
+                                id: `PS-${nanoid(8)}`,
+                                status: "draft",
+                                issuedAt: data.issuedAt ?? new Date().toISOString().split("T")[0],
+                            },
+                        ],
+                    };
+                }),
 
             // DEPRECATED: no-op in simplified flow (kept for backward compat)
             confirmPayslip: (_id) =>
@@ -459,7 +469,17 @@ export const usePayrollStore = create<PayrollState>()(
                 set((s) => {
                     const today = new Date().toISOString().split("T")[0];
                     const targetYear = year ?? new Date().getFullYear();
-                    const newSlips: Payslip[] = employees.map((emp) => {
+                    const newSlips: Payslip[] = employees
+                        .filter((emp) => {
+                            // Duplicate guard: skip if 13th month already exists for this employee + year
+                            return !s.payslips.some(
+                                (p) => p.employeeId === emp.id
+                                    && p.periodStart === `${targetYear}-01-01`
+                                    && p.periodEnd === `${targetYear}-12-31`
+                                    && p.notes?.includes("13th Month Pay")
+                            );
+                        })
+                        .map((emp) => {
                         // Determine how many full months the employee worked this year
                         let monthsWorked = 12;
                         if (emp.joinDate) {

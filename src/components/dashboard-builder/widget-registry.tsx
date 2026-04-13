@@ -40,7 +40,7 @@ import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { format, parseISO, isAfter, startOfDay, isToday } from "date-fns";
+import { parseISO, isAfter, startOfDay, isToday } from "date-fns";
 
 /** Format "HH:MM" time string to "h:mm AM/PM" */
 function formatTimeAmPm(time: string | null | undefined): string {

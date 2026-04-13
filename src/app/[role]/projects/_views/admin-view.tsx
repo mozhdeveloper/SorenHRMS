@@ -51,6 +51,7 @@ export default function AdminProjectsView() {
     // ── Edit project state ──────────────────────────────────────
     const [editOpen, setEditOpen] = useState(false);
     const [editProject, setEditProject] = useState<Project | null>(null);
+    const [saving, setSaving] = useState(false);
     const [editName, setEditName] = useState("");
     const [editDescription, setEditDescription] = useState("");
     const [editLat, setEditLat] = useState("");
@@ -86,15 +87,22 @@ export default function AdminProjectsView() {
             toast.error("A project with this name already exists");
             return;
         }
-        updateProject(editProject.id, {
-            name: editName.trim(),
-            description: editDescription.trim(),
-            location: { lat: latNum, lng: lngNum, radius: radiusNum, address: editLocationAddress.trim() || undefined },
-            verificationMethod: editVerificationMethod,
-        });
-        toast.success(`Project "${editName}" updated!`);
-        setEditOpen(false);
-        setEditProject(null);
+        setSaving(true);
+        try {
+            updateProject(editProject.id, {
+                name: editName.trim(),
+                description: editDescription.trim(),
+                location: { lat: latNum, lng: lngNum, radius: radiusNum, address: editLocationAddress.trim() || undefined },
+                verificationMethod: editVerificationMethod,
+            });
+            toast.success(`Project "${editName}" updated!`);
+            setEditOpen(false);
+            setEditProject(null);
+        } catch (err) {
+            toast.error(`Failed to update project: ${err instanceof Error ? err.message : "Unknown error"}`);
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleAddProject = () => {
@@ -111,10 +119,17 @@ export default function AdminProjectsView() {
             toast.error("A project with this name already exists");
             return;
         }
-        addProject({ name: name.trim(), description: description.trim(), location: { lat: latNum, lng: lngNum, radius: radiusNum, address: locationAddress.trim() || undefined }, assignedEmployeeIds: [], verificationMethod });
-        toast.success(`Project "${name}" created!`);
-        setName(""); setDescription(""); setLat(""); setLng(""); setRadius("100"); setLocationAddress(""); setVerificationMethod("face_only");
-        setAddOpen(false);
+        setSaving(true);
+        try {
+            addProject({ name: name.trim(), description: description.trim(), location: { lat: latNum, lng: lngNum, radius: radiusNum, address: locationAddress.trim() || undefined }, assignedEmployeeIds: [], verificationMethod });
+            toast.success(`Project "${name}" created!`);
+            setName(""); setDescription(""); setLat(""); setLng(""); setRadius("100"); setLocationAddress(""); setVerificationMethod("face_only");
+            setAddOpen(false);
+        } catch (err) {
+            toast.error(`Failed to create project: ${err instanceof Error ? err.message : "Unknown error"}`);
+        } finally {
+            setSaving(false);
+        }
     };
 
     const openAssignDialog = (projectId: string) => {
@@ -128,6 +143,7 @@ export default function AdminProjectsView() {
         if (!assignProjectId) return;
         const project = projects.find((p) => p.id === assignProjectId);
         if (!project) return;
+        try {
         const currentIds = project.assignedEmployeeIds;
         const toAdd = selectedEmpIds.filter((id) => !currentIds.includes(id));
         const toRemove = currentIds.filter((id) => !selectedEmpIds.includes(id));
@@ -149,6 +165,9 @@ export default function AdminProjectsView() {
             toast.success("Assignments updated!");
         }
         setAssignOpen(false);
+        } catch (err) {
+            toast.error(`Failed to update assignments: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     const toggleEmpSelection = (empId: string) => {
@@ -201,7 +220,7 @@ export default function AdminProjectsView() {
                                 </Select>
                                 <p className="text-xs text-muted-foreground mt-1">How employees check in for this project</p>
                             </div>
-                            <Button onClick={handleAddProject} className="w-full">Create Project</Button>
+                            <Button onClick={handleAddProject} className="w-full" disabled={saving}>{saving ? "Creating…" : "Create Project"}</Button>
                         </div>
                     </DialogContent>
                 </Dialog>
@@ -288,7 +307,7 @@ export default function AdminProjectsView() {
                                                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog(project)}>
                                                     <Pencil className="h-3.5 w-3.5" />
                                                 </Button>
-                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-500/10" onClick={() => { deleteProject(project.id); toast.success("Project deleted"); }}>
+                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-500/10" onClick={() => { try { deleteProject(project.id); toast.success("Project deleted"); } catch (err) { toast.error(`Failed to delete project: ${err instanceof Error ? err.message : "Unknown error"}`); } }}>
                                                     <Trash2 className="h-3.5 w-3.5" />
                                                 </Button>
                                             </div>
@@ -370,7 +389,7 @@ export default function AdminProjectsView() {
                         </div>
                         <div className="flex gap-2">
                             <Button variant="outline" onClick={() => setEditOpen(false)} className="flex-1">Cancel</Button>
-                            <Button onClick={handleEditSave} className="flex-1">Save Changes</Button>
+                            <Button onClick={handleEditSave} className="flex-1" disabled={saving}>{saving ? "Saving…" : "Save Changes"}</Button>
                         </div>
                     </div>
                 </DialogContent>

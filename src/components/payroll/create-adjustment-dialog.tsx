@@ -58,22 +58,26 @@ export function CreateAdjustmentDialog({
         const refSlip = payslips.find((p) => p.id === refPayslipId);
         const runId = refSlip?.payrollBatchId || `RUN-${refSlip?.issuedAt || "manual"}`;
 
-        onSubmit({
-            payrollRunId: runId,
-            employeeId,
-            adjustmentType,
-            referencePayslipId: refPayslipId,
-            amount: adjustmentType === "deduction" ? -Math.abs(numAmount) : Math.abs(numAmount),
-            reason: reason.trim(),
-            createdBy: currentUserId,
-        });
-        toast.success("Adjustment created");
-        setEmployeeId("");
-        setAdjustmentType("earnings");
-        setRefPayslipId("");
-        setAmount("");
-        setReason("");
-        onOpenChange(false);
+        try {
+            onSubmit({
+                payrollRunId: runId,
+                employeeId,
+                adjustmentType,
+                referencePayslipId: refPayslipId,
+                amount: adjustmentType === "deduction" ? -Math.abs(numAmount) : Math.abs(numAmount),
+                reason: reason.trim(),
+                createdBy: currentUserId,
+            });
+            toast.success("Adjustment created");
+            setEmployeeId("");
+            setAdjustmentType("earnings");
+            setRefPayslipId("");
+            setAmount("");
+            setReason("");
+            onOpenChange(false);
+        } catch (err) {
+            toast.error(`Failed to create adjustment: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     return (

@@ -50,7 +50,7 @@ import { toast } from "sonner";
 import { useAuditStore } from "@/store/audit.store";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { Employee, WorkType, PayFrequency, Role, JobTitle, Department, DeductionType, DeductionOverrideMode, DeductionTemplate } from "@/types";
+import type { Employee, WorkType, PayFrequency, Role, JobTitle, Department, DeductionType, DeductionOverrideMode } from "@/types";
 
 const USE_DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
@@ -75,7 +75,7 @@ export default function AdminEmployeesView() {
     const demoAccounts = useAuthStore((s) => s.accounts);
     const demoAdminSetPassword = useAuthStore((s) => s.adminSetPassword);
     const demoDeleteAccount = useAuthStore((s) => s.deleteAccount);
-    const { computeFinalPay, paySchedule, deductionOverrides, setDeductionOverride, removeDeductionOverride, getEmployeeOverrides } = usePayrollStore();
+    const { computeFinalPay, paySchedule, setDeductionOverride, removeDeductionOverride, getEmployeeOverrides } = usePayrollStore();
     const { templates: deductionTemplates, assignments: deductionAssignments, fetchTemplates: fetchDeductionTemplates, fetchAssignments: fetchDeductionAssignments, assignToEmployee: assignDeductionToEmployee, unassignFromEmployee: unassignDeductionFromEmployee } = useDeductionsStore();
     const { getActiveByEmployee } = useLoansStore();
     const { getEmployeeBalances } = useLeaveStore();
@@ -164,18 +164,22 @@ export default function AdminEmployeesView() {
         if (!jtNewName.trim()) { toast.error("Job title name is required."); return; }
         const existing = jobTitles.find((jt) => jt.name.toLowerCase() === jtNewName.trim().toLowerCase());
         if (existing) { toast.error("A job title with this name already exists."); return; }
-        addJobTitle({
-            name: jtNewName.trim(),
-            description: jtNewDesc.trim() || undefined,
-            department: jtNewDept || undefined,
-            isActive: true,
-            isLead: jtNewIsLead,
-            color: jtNewColor,
-            createdBy: currentUser.id,
-        });
-        toast.success(`Job title "${jtNewName.trim()}" created!`);
-        setJtAddOpen(false);
-        setJtNewName(""); setJtNewDesc(""); setJtNewDept(""); setJtNewIsLead(false); setJtNewColor("#6366f1");
+        try {
+            addJobTitle({
+                name: jtNewName.trim(),
+                description: jtNewDesc.trim() || undefined,
+                department: jtNewDept || undefined,
+                isActive: true,
+                isLead: jtNewIsLead,
+                color: jtNewColor,
+                createdBy: currentUser.id,
+            });
+            toast.success(`Job title "${jtNewName.trim()}" created!`);
+            setJtAddOpen(false);
+            setJtNewName(""); setJtNewDesc(""); setJtNewDept(""); setJtNewIsLead(false); setJtNewColor("#6366f1");
+        } catch (err) {
+            toast.error(`Failed to create job title: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     const openEditJt = (jt: JobTitle) => {
@@ -193,21 +197,29 @@ export default function AdminEmployeesView() {
         if (!jtEditName.trim()) { toast.error("Job title name is required."); return; }
         const existing = jobTitles.find((jt) => jt.id !== editingJt.id && jt.name.toLowerCase() === jtEditName.trim().toLowerCase());
         if (existing) { toast.error("A job title with this name already exists."); return; }
-        updateJobTitle(editingJt.id, {
-            name: jtEditName.trim(),
-            description: jtEditDesc.trim() || undefined,
-            department: jtEditDept || undefined,
-            isLead: jtEditIsLead,
-            color: jtEditColor,
-        });
-        toast.success(`Job title "${jtEditName.trim()}" updated!`);
-        setJtEditOpen(false);
-        setEditingJt(null);
+        try {
+            updateJobTitle(editingJt.id, {
+                name: jtEditName.trim(),
+                description: jtEditDesc.trim() || undefined,
+                department: jtEditDept || undefined,
+                isLead: jtEditIsLead,
+                color: jtEditColor,
+            });
+            toast.success(`Job title "${jtEditName.trim()}" updated!`);
+            setJtEditOpen(false);
+            setEditingJt(null);
+        } catch (err) {
+            toast.error(`Failed to update job title: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     const handleDeleteJt = (jt: JobTitle) => {
-        deleteJobTitle(jt.id);
-        toast.success(`Job title "${jt.name}" deleted.`);
+        try {
+            deleteJobTitle(jt.id);
+            toast.success(`Job title "${jt.name}" deleted.`);
+        } catch (err) {
+            toast.error(`Failed to delete job title: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     // ─── Departments Tab State ───
@@ -239,17 +251,21 @@ export default function AdminEmployeesView() {
         if (!deptNewName.trim()) { toast.error("Department name is required."); return; }
         const existing = departments.find((d) => d.name.toLowerCase() === deptNewName.trim().toLowerCase());
         if (existing) { toast.error("A department with this name already exists."); return; }
-        addDepartment({
-            name: deptNewName.trim(),
-            description: deptNewDesc.trim() || undefined,
-            headId: deptNewHead !== "none" ? deptNewHead : undefined,
-            color: deptNewColor,
-            isActive: true,
-            createdBy: currentUser.id,
-        });
-        toast.success(`Department "${deptNewName.trim()}" created!`);
-        setDeptAddOpen(false);
-        setDeptNewName(""); setDeptNewDesc(""); setDeptNewHead("none"); setDeptNewColor("#6366f1");
+        try {
+            addDepartment({
+                name: deptNewName.trim(),
+                description: deptNewDesc.trim() || undefined,
+                headId: deptNewHead !== "none" ? deptNewHead : undefined,
+                color: deptNewColor,
+                isActive: true,
+                createdBy: currentUser.id,
+            });
+            toast.success(`Department "${deptNewName.trim()}" created!`);
+            setDeptAddOpen(false);
+            setDeptNewName(""); setDeptNewDesc(""); setDeptNewHead("none"); setDeptNewColor("#6366f1");
+        } catch (err) {
+            toast.error(`Failed to create department: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     const openEditDept = (d: Department) => {
@@ -266,20 +282,28 @@ export default function AdminEmployeesView() {
         if (!deptEditName.trim()) { toast.error("Department name is required."); return; }
         const existing = departments.find((d) => d.id !== editingDept.id && d.name.toLowerCase() === deptEditName.trim().toLowerCase());
         if (existing) { toast.error("A department with this name already exists."); return; }
-        updateDepartment(editingDept.id, {
-            name: deptEditName.trim(),
-            description: deptEditDesc.trim() || undefined,
-            headId: deptEditHead !== "none" ? deptEditHead : undefined,
-            color: deptEditColor,
-        });
-        toast.success(`Department "${deptEditName.trim()}" updated!`);
-        setDeptEditOpen(false);
-        setEditingDept(null);
+        try {
+            updateDepartment(editingDept.id, {
+                name: deptEditName.trim(),
+                description: deptEditDesc.trim() || undefined,
+                headId: deptEditHead !== "none" ? deptEditHead : undefined,
+                color: deptEditColor,
+            });
+            toast.success(`Department "${deptEditName.trim()}" updated!`);
+            setDeptEditOpen(false);
+            setEditingDept(null);
+        } catch (err) {
+            toast.error(`Failed to update department: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     const handleDeleteDept = (d: Department) => {
-        deleteDepartment(d.id);
-        toast.success(`Department "${d.name}" deleted.`);
+        try {
+            deleteDepartment(d.id);
+            toast.success(`Department "${d.name}" deleted.`);
+        } catch (err) {
+            toast.error(`Failed to delete department: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     // Helper to get department head name
@@ -437,6 +461,7 @@ export default function AdminEmployeesView() {
         if (!salaryDialogEmpId) return;
         const val = Number(salaryInput);
         if (!val || val <= 0) { toast.error("Please enter a valid monthly salary."); return; }
+        try {
         if (isHR) {
             proposeSalaryChange({ employeeId: salaryDialogEmpId, proposedBy: currentUser.id, proposedSalary: val, effectiveDate: new Date().toISOString().slice(0, 10), reason: salaryReason || "Salary adjustment" });
             useAuditStore.getState().log({ entityType: "employee", entityId: salaryDialogEmpId, action: "salary_proposed", performedBy: currentUser.id, afterSnapshot: { salary: val } });
@@ -447,6 +472,9 @@ export default function AdminEmployeesView() {
             toast.success(`Salary updated for ${salaryDialogEmp?.name ?? "employee"}`);
         }
         setSalaryDialogEmpId(null); setSalaryInput(""); setSalaryReason("");
+        } catch (err) {
+            toast.error(`Failed to save salary: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     const filtered = useMemo(() => {
@@ -481,9 +509,14 @@ export default function AdminEmployeesView() {
 
     const handleAddEmployee = async () => {
         if (!canManage) { toast.error("You don't have permission to add employees"); return; }
-        if (!newName || !newEmail || !newJobTitle || !newDept) { toast.error("Please fill all required fields"); return; }
+        if (!newName.trim()) { toast.error("Employee name is required"); return; }
+        if (!newEmail.trim()) { toast.error("Email address is required"); return; }
+        if (!newJobTitle || !newDept) { toast.error("Please fill all required fields (job title, department)"); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim())) { toast.error("Please enter a valid email address"); return; }
         if (!newPassword || newPassword.length < 8) { toast.error("Password is required and must be at least 8 characters"); return; }
-        if (employees.some((e) => e.email.toLowerCase() === newEmail.toLowerCase())) { toast.error("An employee with this email already exists"); return; }
+        if (employees.some((e) => e.email.toLowerCase() === newEmail.trim().toLowerCase())) { toast.error("An employee with this email already exists"); return; }
+        const salaryVal = Number(newSalary);
+        if (newSalary && (isNaN(salaryVal) || salaryVal < 0)) { toast.error("Salary must be a non-negative number"); return; }
         
         // Validate phone number format if provided
         if (newPhone) {
@@ -501,8 +534,8 @@ export default function AdminEmployeesView() {
         const formattedPhone = newPhone ? validatePhone(newPhone).formatted : undefined;
         
         const addResult = addEmployee({
-            id, name: newName, email: newEmail, role: newSystemRole, jobTitle: newJobTitle, department: newDept, workType: newWorkType,
-            salary: Number(newSalary) || 0, joinDate: new Date().toISOString().split("T")[0], productivity: 0,
+            id, name: newName.trim(), email: newEmail.trim(), role: newSystemRole, jobTitle: newJobTitle, department: newDept, workType: newWorkType,
+            salary: salaryVal || 0, joinDate: new Date().toISOString().split("T")[0], productivity: 0,
             status: "active", location: "", phone: formattedPhone,
             workDays: newWorkDays.length ? newWorkDays : undefined,
             birthday: newBirthday || undefined,
@@ -642,8 +675,13 @@ export default function AdminEmployeesView() {
 
     const handleSaveEdit = () => {
         if (!canManage || !editingEmp) { toast.error("You don't have permission to edit employees"); return; }
-        if (!editName || !editEmail || !editDept) { toast.error("Please fill all required fields"); return; }
-        if (employees.some((e) => e.id !== editingEmp.id && e.email.toLowerCase() === editEmail.toLowerCase())) { toast.error("An employee with this email already exists"); return; }
+        if (!editName.trim()) { toast.error("Employee name is required"); return; }
+        if (!editEmail.trim()) { toast.error("Email address is required"); return; }
+        if (!editDept) { toast.error("Department is required"); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editEmail.trim())) { toast.error("Please enter a valid email address"); return; }
+        if (employees.some((e) => e.id !== editingEmp.id && e.email.toLowerCase() === editEmail.trim().toLowerCase())) { toast.error("An employee with this email already exists"); return; }
+        const editSalaryNum = Number(editSalary);
+        if (editSalary && (isNaN(editSalaryNum) || editSalaryNum < 0)) { toast.error("Salary must be a non-negative number"); return; }
         
         // Validate phone if provided
         let formattedPhone: string | undefined;
@@ -656,9 +694,10 @@ export default function AdminEmployeesView() {
             formattedPhone = phoneResult.formatted;
         }
         
+        try {
         updateEmployee(editingEmp.id, {
-            name: editName, email: editEmail, role: editRole, jobTitle: editJobTitle, department: editDept, workType: editWorkType,
-            salary: Number(editSalary) || 0, phone: formattedPhone,
+            name: editName.trim(), email: editEmail.trim(), role: editRole, jobTitle: editJobTitle, department: editDept, workType: editWorkType,
+            salary: editSalaryNum || 0, phone: formattedPhone,
             productivity: Number(editProductivity) || 80, payFrequency: editPayFreq !== "company" ? editPayFreq as PayFrequency : undefined,
             birthday: editBirthday || undefined,
             teamLeader: editTeamLeader !== "none" ? editTeamLeader : undefined,
@@ -713,6 +752,9 @@ export default function AdminEmployeesView() {
         toast.success(`${editName} updated successfully!`);
         useAuditStore.getState().log({ entityType: "employee", entityId: editingEmp.id, action: "adjustment_applied", performedBy: currentUser.id, reason: "Profile updated" });
         setEditOpen(false); setEditingEmp(null);
+        } catch (err) {
+            toast.error(`Failed to update employee: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     return (

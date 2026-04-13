@@ -72,19 +72,31 @@ export function ComputeFinalPayDialog({
             toast.error("Please select an employee");
             return;
         }
-        onSubmit({
-            employeeId,
-            resignedAt: selectedEmp.resignedAt || new Date().toISOString().split("T")[0],
-            salary: selectedEmp.salary,
-            unpaidOTHours: otHours,
-            leaveDays,
-            loanBalance: autoLoan,
-        });
-        toast.success(`Final pay computed for ${selectedEmp.name}`);
-        setEmployeeId("");
-        setUnpaidOTHours("0");
-        setExtraLeaveDays("");
-        onOpenChange(false);
+        if (otHours < 0) {
+            toast.error("Unpaid OT hours cannot be negative");
+            return;
+        }
+        if (leaveDays < 0) {
+            toast.error("Leave days cannot be negative");
+            return;
+        }
+        try {
+            onSubmit({
+                employeeId,
+                resignedAt: selectedEmp.resignedAt || new Date().toISOString().split("T")[0],
+                salary: selectedEmp.salary,
+                unpaidOTHours: otHours,
+                leaveDays,
+                loanBalance: autoLoan,
+            });
+            toast.success(`Final pay computed for ${selectedEmp.name}`);
+            setEmployeeId("");
+            setUnpaidOTHours("0");
+            setExtraLeaveDays("");
+            onOpenChange(false);
+        } catch (err) {
+            toast.error(`Failed to compute final pay: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
     };
 
     return (
