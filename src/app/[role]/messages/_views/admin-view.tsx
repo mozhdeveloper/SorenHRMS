@@ -343,12 +343,12 @@ export default function AdminMessagesView() {
                                                             <Avatar className="h-7 w-7 shrink-0">
                                                                 <AvatarFallback className="text-[9px] bg-muted">{getInitials(getEmpName(msg.employeeId))}</AvatarFallback>
                                                             </Avatar>
-                                                            <div className={`max-w-[70%] ${isMine ? "text-right" : ""}`}>
+                                                            <div className={`max-w-[70%] min-w-0 ${isMine ? "text-right" : ""}`}>
                                                                 <div className="flex items-center gap-2 mb-0.5">
                                                                     {!isMine && <span className="text-xs font-medium">{getEmpName(msg.employeeId)}</span>}
                                                                     <span className="text-[10px] text-muted-foreground">{formatDateTime(msg.createdAt)}</span>
                                                                 </div>
-                                                                <div className={`inline-block rounded-lg px-3 py-2 text-sm ${
+                                                                <div className={`rounded-lg px-3 py-2 text-sm break-words whitespace-pre-wrap overflow-hidden ${
                                                                     isMine
                                                                         ? "bg-primary text-primary-foreground"
                                                                         : "bg-muted"

@@ -206,12 +206,12 @@ export default function EmployeeMessagesView() {
                                                             <Avatar className="h-8 w-8 shrink-0">
                                                                 <AvatarFallback className="text-[9px] bg-muted">{getInitials(getEmpName(msg.employeeId))}</AvatarFallback>
                                                             </Avatar>
-                                                            <div className={`max-w-[75%] sm:max-w-[65%] space-y-0.5 flex flex-col ${isMine ? "items-end" : "items-start"}`}>
+                                                            <div className={`max-w-[75%] sm:max-w-[65%] min-w-0 space-y-0.5 flex flex-col ${isMine ? "items-end" : "items-start"}`}>
                                                                 <div className={`flex items-center gap-1.5 ${isMine ? "flex-row-reverse" : ""}`}>
                                                                     {!isMine && <span className="text-xs font-medium">{getEmpName(msg.employeeId)}</span>}
                                                                     <span className="text-[10px] text-muted-foreground">{formatDateTime(msg.createdAt)}</span>
                                                                 </div>
-                                                                <div className={`rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
+                                                                <div className={`rounded-2xl px-3.5 py-2 text-sm leading-relaxed break-words whitespace-pre-wrap overflow-hidden ${
                                                                     isMine
                                                                         ? "bg-primary text-primary-foreground rounded-tr-sm"
                                                                         : "bg-muted rounded-tl-sm"
