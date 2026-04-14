@@ -483,9 +483,10 @@ export default function AdminEmployeesView() {
             const matchSearch = !searchQuery || e.name.toLowerCase().includes(searchQuery.toLowerCase()) || e.email.toLowerCase().includes(searchQuery.toLowerCase()) || e.id.toLowerCase().includes(searchQuery.toLowerCase());
             const matchStatus = statusFilter === "all" || e.status === statusFilter;
             const matchWork = workTypeFilter === "all" || e.workType === workTypeFilter;
+            const matchRole = roleFilter === "all" || e.role === roleFilter;
             const matchDept = departmentFilter === "all" || e.department === departmentFilter;
             const matchSalary = e.salary >= salaryRange[0] && e.salary <= salaryRange[1];
-            return matchSearch && matchStatus && matchWork && matchDept && matchSalary;
+            return matchSearch && matchStatus && matchWork && matchRole && matchDept && matchSalary;
         });
         result.sort((a, b) => {
             const aVal = a[sortKey]; const bVal = b[sortKey];
@@ -494,7 +495,7 @@ export default function AdminEmployeesView() {
             return sortDir === "asc" ? cmp : -cmp;
         });
         return result;
-    }, [employees, searchQuery, statusFilter, workTypeFilter, departmentFilter, salaryRange, sortKey, sortDir]);
+    }, [employees, searchQuery, statusFilter, workTypeFilter, roleFilter, departmentFilter, salaryRange, sortKey, sortDir]);
 
     const totalPages = Math.ceil(filtered.length / pageSize);
     const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -1299,15 +1300,15 @@ export default function AdminEmployeesView() {
                                 </div>
                                 <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as "all" | "active" | "inactive"); setPage(1); }}>
                                     <SelectTrigger className="w-full sm:w-[130px]"><SelectValue placeholder="Status" /></SelectTrigger>
-                                    <SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem><SelectItem value="resigned">Resigned</SelectItem></SelectContent>
+                                    <SelectContent position="popper" className="z-50"><SelectItem value="all">All Status</SelectItem><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem><SelectItem value="resigned">Resigned</SelectItem></SelectContent>
                                 </Select>
                                 <Select value={workTypeFilter} onValueChange={(v) => { setWorkTypeFilter(v as "all" | "WFH" | "WFO" | "HYBRID"); setPage(1); }}>
                                     <SelectTrigger className="w-full sm:w-[130px]"><SelectValue placeholder="Work Type" /></SelectTrigger>
-                                    <SelectContent><SelectItem value="all">All Types</SelectItem><SelectItem value="WFH">WFH</SelectItem><SelectItem value="WFO">WFO</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem></SelectContent>
+                                    <SelectContent position="popper" className="z-50"><SelectItem value="all">All Types</SelectItem><SelectItem value="WFH">WFH</SelectItem><SelectItem value="WFO">WFO</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem></SelectContent>
                                 </Select>
                                 <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setPage(1); }}>
                                     <SelectTrigger className="w-full sm:w-[130px]"><SelectValue placeholder="Role" /></SelectTrigger>
-                                    <SelectContent><SelectItem value="all">All Roles</SelectItem><SelectItem value="admin">Admin</SelectItem><SelectItem value="hr">HR</SelectItem><SelectItem value="finance">Finance</SelectItem><SelectItem value="payroll_admin">Payroll Admin</SelectItem><SelectItem value="supervisor">Supervisor</SelectItem><SelectItem value="employee">Employee</SelectItem><SelectItem value="auditor">Auditor</SelectItem></SelectContent>
+                                    <SelectContent position="popper" className="z-50"><SelectItem value="all">All Roles</SelectItem><SelectItem value="admin">Admin</SelectItem><SelectItem value="hr">HR</SelectItem><SelectItem value="finance">Finance</SelectItem><SelectItem value="payroll_admin">Payroll Admin</SelectItem><SelectItem value="supervisor">Supervisor</SelectItem><SelectItem value="employee">Employee</SelectItem><SelectItem value="auditor">Auditor</SelectItem></SelectContent>
                                 </Select>
                                 <Sheet>
                                     <SheetTrigger asChild>
