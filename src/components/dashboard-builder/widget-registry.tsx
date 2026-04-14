@@ -718,7 +718,7 @@ function MyLeaveRequests() {
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead className="text-xs">Type</TableHead>
+                                <TableHead className="text-xs pl-6">Type</TableHead>
                                 <TableHead className="text-xs">Period</TableHead>
                                 <TableHead className="text-xs">Days</TableHead>
                                 <TableHead className="text-xs">Status</TableHead>
@@ -734,7 +734,7 @@ function MyLeaveRequests() {
                                 };
                                 return (
                                     <TableRow key={req.id}>
-                                        <TableCell className="text-sm font-medium">{req.type}</TableCell>
+                                        <TableCell className="text-sm font-medium pl-6">{req.type}</TableCell>
                                         <TableCell className="text-xs text-muted-foreground">{req.startDate} &ndash; {req.endDate}</TableCell>
                                         <TableCell className="text-sm">{days}d</TableCell>
                                         <TableCell>
