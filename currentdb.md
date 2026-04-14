@@ -690,10 +690,8 @@ CREATE TABLE public.payslips (
   confirmed_at timestamp with time zone,
   published_at timestamp with time zone,
   paid_at timestamp with time zone,
-  payment_method text CHECK (payment_method IS NULL OR payment_method = ANY (ARRAY['bank_transfer', 'gcash', 'cash', 'check'])),
+  payment_method text CHECK (payment_method IS NULL OR (payment_method = ANY (ARRAY['bank_transfer'::text, 'gcash'::text, 'cash'::text, 'check'::text]))),
   bank_reference_id text,
-  payment_proof_url text,
-  cash_amount numeric,
   payroll_batch_id text,
   pdf_hash text,
   notes text,
@@ -707,9 +705,10 @@ CREATE TABLE public.payslips (
   paid_confirmed_at timestamp with time zone,
   custom_deductions numeric NOT NULL DEFAULT 0,
   line_items_json jsonb,
+  payment_proof_url text,
+  cash_amount numeric,
   CONSTRAINT payslips_pkey PRIMARY KEY (id),
-  CONSTRAINT payslips_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id),
-  CONSTRAINT payslips_payment_method_check CHECK (payment_method IS NULL OR payment_method = ANY (ARRAY['bank_transfer'::text, 'gcash'::text, 'cash'::text, 'check'::text]))
+  CONSTRAINT payslips_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id)
 );
 CREATE TABLE public.penalty_records (
   id text NOT NULL,
@@ -776,6 +775,19 @@ CREATE TABLE public.projects (
   geofence_radius_meters integer DEFAULT 100,
   location_address text,
   CONSTRAINT projects_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.push_subscriptions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  employee_id text NOT NULL,
+  endpoint text NOT NULL UNIQUE,
+  p256dh text NOT NULL,
+  auth text NOT NULL,
+  user_agent text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  last_used_at timestamp with time zone,
+  is_active boolean NOT NULL DEFAULT true,
+  CONSTRAINT push_subscriptions_pkey PRIMARY KEY (id),
+  CONSTRAINT fk_push_employee FOREIGN KEY (employee_id) REFERENCES public.employees(id)
 );
 CREATE TABLE public.qr_tokens (
   id text NOT NULL,

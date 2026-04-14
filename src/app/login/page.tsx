@@ -94,6 +94,8 @@ export default function LoginPage() {
                 toast.success("Welcome back!");
                 router.push(`/${result.user.role}/dashboard`);
             } else if (result.error === "deactivated") {
+                toast.error("Your account has been deactivated. Please contact your HR administrator.");
+                setLoading(false);
                 router.push("/deactivated");
             } else {
                 toast.error(result.error || "Invalid email or password");
