@@ -530,8 +530,10 @@ export interface Payslip {
   confirmedAt?: string;
   publishedAt?: string;
   paidAt?: string;
-  paymentMethod?: string;
-  bankReferenceId?: string;
+  paymentMethod?: "bank_transfer" | "gcash" | "cash" | "check";
+  bankReferenceId?: string;  // Reference: Bank ref, GCash ID, Check number
+  paymentProofUrl?: string;  // URL to uploaded proof image
+  cashAmount?: number;       // For cash payments, actual amount given
   payrollBatchId?: string;
   pdfHash?: string;
   notes?: string;

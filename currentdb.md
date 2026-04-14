@@ -690,8 +690,10 @@ CREATE TABLE public.payslips (
   confirmed_at timestamp with time zone,
   published_at timestamp with time zone,
   paid_at timestamp with time zone,
-  payment_method text,
+  payment_method text CHECK (payment_method IS NULL OR payment_method = ANY (ARRAY['bank_transfer', 'gcash', 'cash', 'check'])),
   bank_reference_id text,
+  payment_proof_url text,
+  cash_amount numeric,
   payroll_batch_id text,
   pdf_hash text,
   notes text,
@@ -706,7 +708,8 @@ CREATE TABLE public.payslips (
   custom_deductions numeric NOT NULL DEFAULT 0,
   line_items_json jsonb,
   CONSTRAINT payslips_pkey PRIMARY KEY (id),
-  CONSTRAINT payslips_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id)
+  CONSTRAINT payslips_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id),
+  CONSTRAINT payslips_payment_method_check CHECK (payment_method IS NULL OR payment_method = ANY (ARRAY['bank_transfer'::text, 'gcash'::text, 'cash'::text, 'check'::text]))
 );
 CREATE TABLE public.penalty_records (
   id text NOT NULL,

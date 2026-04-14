@@ -1045,8 +1045,8 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                             payslips={payslips}
                             getEmpName={getEmpName}
                             isAdmin={canIssue}
-                            onMarkPaid={(id, method, reference) => {
-                                confirmPaidByFinance(id, currentUser.name, method, reference);
+                            onMarkPaid={(id, method, reference, cashAmount, paymentProofUrl) => {
+                                confirmPaidByFinance(id, currentUser.name, method, reference, cashAmount, paymentProofUrl);
                                 const ps = payslips.find(p => p.id === id);
                                 if (ps) dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, method }, ps.employeeId);
                                 toast.success("Payment confirmed");

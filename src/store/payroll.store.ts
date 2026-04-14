@@ -47,10 +47,10 @@ interface PayrollState {
     issuePayslip: (payslip: Omit<Payslip, "id" | "status" | "issuedAt"> & { issuedAt?: string }) => void;
     confirmPayslip: (id: string) => void;
     publishPayslip: (id: string) => void;
-    recordPayment: (id: string, paymentMethod: string, bankReferenceId: string) => void;
+    recordPayment: (id: string, paymentMethod: Payslip["paymentMethod"], bankReferenceId: string) => void;
     signPayslip: (id: string, signatureDataUrl: string) => void;
     acknowledgePayslip: (id: string, employeeId: string) => void;
-    confirmPaidByFinance: (id: string, confirmedBy: string, method: string, reference: string) => void;
+    confirmPaidByFinance: (id: string, confirmedBy: string, method: Payslip["paymentMethod"], reference: string, cashAmount?: number, paymentProofUrl?: string) => void;
     /** Update a payslip with data from server (avoids timestamp mismatch with write-through) */
     updatePayslipFromServer: (payslip: Partial<Payslip> & { id: string }) => void;
     getPayslipsByStatus: (status: Payslip["status"]) => Payslip[];
@@ -219,11 +219,20 @@ export const usePayrollStore = create<PayrollState>()(
                 })),
 
             // Payment tracking only (no status change in simplified flow)
-            confirmPaidByFinance: (id, confirmedBy, method, reference) =>
+            confirmPaidByFinance: (id, confirmedBy, method, reference, cashAmount, paymentProofUrl) =>
                 set((s) => ({
                     payslips: s.payslips.map((p) =>
                         p.id === id
-                            ? { ...p, paidAt: new Date().toISOString(), paidConfirmedBy: confirmedBy, paidConfirmedAt: new Date().toISOString(), paymentMethod: method, bankReferenceId: reference }
+                            ? { 
+                                ...p, 
+                                paidAt: new Date().toISOString(), 
+                                paidConfirmedBy: confirmedBy, 
+                                paidConfirmedAt: new Date().toISOString(), 
+                                paymentMethod: method as Payslip["paymentMethod"], 
+                                bankReferenceId: reference,
+                                cashAmount: method === "cash" ? cashAmount : undefined,
+                                paymentProofUrl,
+                              }
                             : p
                     ),
                 })),
