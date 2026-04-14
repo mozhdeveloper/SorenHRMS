@@ -35,6 +35,9 @@ interface AttendanceState {
     /** Auto-mark absent for employees who didn't check in after their shift ends (skips holidays) */
     autoMarkAbsentAfterShift: (date: string, employees: Array<{ id: string; workDays?: string[]; shiftId?: string }>) => number;
     resolveException: (exceptionId: string, resolvedBy: string, notes?: string) => void;
+    updateException: (exceptionId: string, updates: { flag?: AttendanceFlag; notes?: string }) => void;
+    deleteException: (exceptionId: string) => void;
+    reopenException: (exceptionId: string) => void;
     getExceptions: (filters?: { employeeId?: string; date?: string; resolved?: boolean }) => AttendanceException[];
 
     // ─── Legacy log operations (derived view) ─────────
@@ -239,14 +242,69 @@ export const useAttendanceStore = create<AttendanceState>()(
                 return toMarkAbsent.length;
             },
 
-            resolveException: (exceptionId, resolvedBy, notes) =>
+            resolveException: (exceptionId, resolvedBy, notes) => {
+                // Update local state immediately
                 set((s) => ({
                     exceptions: s.exceptions.map((ex) =>
                         ex.id === exceptionId
                             ? { ...ex, resolvedAt: new Date().toISOString(), resolvedBy, notes: notes || ex.notes }
                             : ex
                     ),
-                })),
+                }));
+                // Sync to DB (fire-and-forget)
+                fetch("/api/attendance/exceptions", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: exceptionId, action: "resolve", resolvedBy, notes }),
+                }).catch((err) => console.warn("[attendance] Exception resolve sync failed:", err));
+            },
+
+            updateException: (exceptionId, updates) => {
+                // Update local state immediately
+                set((s) => ({
+                    exceptions: s.exceptions.map((ex) =>
+                        ex.id === exceptionId
+                            ? { ...ex, ...updates }
+                            : ex
+                    ),
+                }));
+                // Sync to DB (fire-and-forget)
+                fetch("/api/attendance/exceptions", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: exceptionId, action: "update", ...updates }),
+                }).catch((err) => console.warn("[attendance] Exception update sync failed:", err));
+            },
+
+            deleteException: (exceptionId) => {
+                // Remove from local state immediately
+                set((s) => ({
+                    exceptions: s.exceptions.filter((ex) => ex.id !== exceptionId),
+                }));
+                // Sync to DB (fire-and-forget)
+                fetch("/api/attendance/exceptions", {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: exceptionId }),
+                }).catch((err) => console.warn("[attendance] Exception delete sync failed:", err));
+            },
+
+            reopenException: (exceptionId) => {
+                // Update local state immediately (clear resolution)
+                set((s) => ({
+                    exceptions: s.exceptions.map((ex) =>
+                        ex.id === exceptionId
+                            ? { ...ex, resolvedAt: undefined, resolvedBy: undefined }
+                            : ex
+                    ),
+                }));
+                // Sync to DB (fire-and-forget)
+                fetch("/api/attendance/exceptions", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: exceptionId, action: "reopen" }),
+                }).catch((err) => console.warn("[attendance] Exception reopen sync failed:", err));
+            },
 
             getExceptions: (filters) => {
                 let result = get().exceptions;

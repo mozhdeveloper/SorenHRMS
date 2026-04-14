@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -20,8 +21,12 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-    Dialog, DialogContent, DialogHeader, DialogTitle,
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import {
+    DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+    DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -35,7 +40,7 @@ import {
     Clock, LogIn, LogOut, Download, MapPin, CheckCircle, XCircle, Navigation,
     BellRing, UserX, ShieldCheck, Timer, ThumbsUp, ThumbsDown, RotateCcw,
     AlertTriangle, Zap, CalendarDays, Plus, Pencil, Trash2, UploadCloud,
-    ShieldAlert, Gauge, Camera, ListChecks,
+    ShieldAlert, Gauge, Camera, ListChecks, MoreHorizontal, Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { isWithinGeofence } from "@/lib/geofence";
@@ -46,7 +51,7 @@ import { BreakTimer } from "@/components/attendance/break-timer";
 import { SiteSurveyGallery } from "@/components/attendance/site-survey-gallery";
 import { LocationTrail } from "@/components/attendance/location-trail";
 import { AttendanceHeatmap } from "@/components/attendance/attendance-heatmap";
-import type { Holiday } from "@/types";
+import type { Holiday, AttendanceFlag } from "@/types";
 
 type CheckInStep = "idle" | "locating" | "location_result" | "done" | "error" | "selfie";
 
@@ -81,7 +86,7 @@ interface AdminViewProps {
 }
 
 export default function AdminView({ mode = "admin" }: AdminViewProps) {
-    const { logs, checkIn, checkOut, getTodayLog, markAbsent, updateLog, bulkUpsertLogs, appendEvent, overtimeRequests, submitOvertimeRequest, approveOvertime, rejectOvertime, events, exceptions, autoGenerateExceptions, autoMarkAbsentAfterShift, resolveException, resetToSeed, holidays, addHoliday, updateHoliday, deleteHoliday, resetHolidaysToDefault, applyPenalty, getActivePenalty, cleanExpiredPenalties, shiftTemplates, employeeShifts } = useAttendanceStore();
+    const { logs, checkIn, checkOut, getTodayLog, markAbsent, updateLog, bulkUpsertLogs, appendEvent, overtimeRequests, submitOvertimeRequest, approveOvertime, rejectOvertime, events, exceptions, autoGenerateExceptions, autoMarkAbsentAfterShift, resolveException, updateException, deleteException, reopenException, resetToSeed, holidays, addHoliday, updateHoliday, deleteHoliday, resetHolidaysToDefault, applyPenalty, getActivePenalty, cleanExpiredPenalties, shiftTemplates, employeeShifts } = useAttendanceStore();
     const employees = useEmployeesStore((s) => s.employees);
     const currentUser = useAuthStore((s) => s.currentUser);
     const getProjectForEmployee = useProjectsStore((s) => s.getProjectForEmployee);
@@ -202,6 +207,12 @@ export default function AdminView({ mode = "admin" }: AdminViewProps) {
     const [ovCheckOut, setOvCheckOut] = useState("");
     const [ovStatus, setOvStatus] = useState<"present" | "absent" | "on_leave">("present");
     const [ovLate, setOvLate] = useState("");
+
+    // Exception edit dialog state
+    const [excEditOpen, setExcEditOpen] = useState(false);
+    const [editingException, setEditingException] = useState<typeof exceptions[0] | null>(null);
+    const [excFlag, setExcFlag] = useState<AttendanceFlag>("missing_in");
+    const [excNotes, setExcNotes] = useState("");
 
     // Bulk selection state
     const [selectedLogIds, setSelectedLogIds] = useState<Set<string>>(new Set());
@@ -926,7 +937,7 @@ export default function AdminView({ mode = "admin" }: AdminViewProps) {
                                 <Table>
                                     <TableHeader><TableRow>
                                         <TableHead className="text-xs">Date</TableHead><TableHead className="text-xs">Employee</TableHead>
-                                        <TableHead className="text-xs">Type</TableHead><TableHead className="text-xs">Description</TableHead>
+                                        <TableHead className="text-xs">Type</TableHead><TableHead className="text-xs">Notes</TableHead>
                                         <TableHead className="text-xs">Status</TableHead>
                                         {canEdit && <TableHead className="text-xs w-20">Actions</TableHead>}
                                     </TableRow></TableHeader>
@@ -945,7 +956,51 @@ export default function AdminView({ mode = "admin" }: AdminViewProps) {
                                                     <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">{exc.notes || "—"}</TableCell>
                                                     <TableCell><Badge variant="secondary" className={`text-[10px] ${exc.resolvedAt ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-red-500/15 text-red-700 dark:text-red-400"}`}>{exc.resolvedAt ? "resolved" : "open"}</Badge></TableCell>
                                                     {canEdit && (
-                                                        <TableCell>{!exc.resolvedAt && <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" onClick={() => { resolveException(exc.id, currentUser.id, "Manually resolved"); appendEvent({ employeeId: exc.employeeId, eventType: "EXCEPTION_RESOLVED", timestampUTC: new Date().toISOString(), performedBy: currentUser.id, description: `Resolved "${exc.flag.replace(/_/g, " ")}" exception for ${getEmpName(exc.employeeId)} on ${exc.date}`, metadata: { exceptionId: exc.id, flag: exc.flag, date: exc.date } }); toast.success("Resolved"); }}><CheckCircle className="h-3.5 w-3.5" /></Button>}</TableCell>
+                                                        <TableCell>
+                                                            <DropdownMenu>
+                                                                <DropdownMenuTrigger asChild>
+                                                                    <Button variant="ghost" size="icon" className="h-7 w-7">
+                                                                        <MoreHorizontal className="h-4 w-4" />
+                                                                    </Button>
+                                                                </DropdownMenuTrigger>
+                                                                <DropdownMenuContent align="end">
+                                                                    <DropdownMenuItem onClick={() => {
+                                                                        setEditingException(exc);
+                                                                        setExcFlag(exc.flag);
+                                                                        setExcNotes(exc.notes || "");
+                                                                        setExcEditOpen(true);
+                                                                    }}>
+                                                                        <Pencil className="h-3.5 w-3.5 mr-2" /> Edit
+                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuSeparator />
+                                                                    {!exc.resolvedAt ? (
+                                                                        <DropdownMenuItem onClick={() => {
+                                                                            resolveException(exc.id, currentUser.id, "Manually resolved");
+                                                                            appendEvent({ employeeId: exc.employeeId, eventType: "EXCEPTION_RESOLVED", timestampUTC: new Date().toISOString(), performedBy: currentUser.id, description: `Resolved "${exc.flag.replace(/_/g, " ")}" exception for ${getEmpName(exc.employeeId)} on ${exc.date}`, metadata: { exceptionId: exc.id, flag: exc.flag, date: exc.date } });
+                                                                            toast.success("Exception resolved");
+                                                                        }}>
+                                                                            <CheckCircle className="h-3.5 w-3.5 mr-2 text-emerald-600" /> Resolve
+                                                                        </DropdownMenuItem>
+                                                                    ) : (
+                                                                        <DropdownMenuItem onClick={() => {
+                                                                            reopenException(exc.id);
+                                                                            appendEvent({ employeeId: exc.employeeId, eventType: "EXCEPTION_REOPENED", timestampUTC: new Date().toISOString(), performedBy: currentUser.id, description: `Reopened "${exc.flag.replace(/_/g, " ")}" exception for ${getEmpName(exc.employeeId)} on ${exc.date}`, metadata: { exceptionId: exc.id, flag: exc.flag, date: exc.date } });
+                                                                            toast.info("Exception reopened");
+                                                                        }}>
+                                                                            <Undo2 className="h-3.5 w-3.5 mr-2 text-amber-600" /> Reopen
+                                                                        </DropdownMenuItem>
+                                                                    )}
+                                                                    <DropdownMenuSeparator />
+                                                                    <DropdownMenuItem className="text-red-600" onClick={() => {
+                                                                        deleteException(exc.id);
+                                                                        appendEvent({ employeeId: exc.employeeId, eventType: "EXCEPTION_DELETED", timestampUTC: new Date().toISOString(), performedBy: currentUser.id, description: `Deleted "${exc.flag.replace(/_/g, " ")}" exception for ${getEmpName(exc.employeeId)} on ${exc.date}`, metadata: { exceptionId: exc.id, flag: exc.flag, date: exc.date } });
+                                                                        toast.success("Exception deleted");
+                                                                    }}>
+                                                                        <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
+                                                                    </DropdownMenuItem>
+                                                                </DropdownMenuContent>
+                                                            </DropdownMenu>
+                                                        </TableCell>
                                                     )}
                                                 </TableRow>
                                             );
@@ -1200,6 +1255,64 @@ export default function AdminView({ mode = "admin" }: AdminViewProps) {
                     </DialogContent>
                 </Dialog>
             )}
+
+            {/* Exception Edit Dialog */}
+            <Dialog open={excEditOpen} onOpenChange={(open) => { if (!open) { setExcEditOpen(false); setEditingException(null); } }}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5" /> Edit Exception</DialogTitle></DialogHeader>
+                    {editingException && (
+                        <div className="space-y-4 pt-2">
+                            <div className="text-sm text-muted-foreground">
+                                <span className="font-medium text-foreground">{getEmpName(editingException.employeeId)}</span> on {editingException.date}
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium">Exception Type</label>
+                                <Select value={excFlag} onValueChange={(v) => setExcFlag(v as AttendanceFlag)}>
+                                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="missing_in">Missing In</SelectItem>
+                                        <SelectItem value="missing_out">Missing Out</SelectItem>
+                                        <SelectItem value="out_of_geofence">Out of Geofence</SelectItem>
+                                        <SelectItem value="duplicate_scan">Duplicate Scan</SelectItem>
+                                        <SelectItem value="device_mismatch">Device Mismatch</SelectItem>
+                                        <SelectItem value="late_arrival">Late Arrival</SelectItem>
+                                        <SelectItem value="early_departure">Early Departure</SelectItem>
+                                        <SelectItem value="suspicious_activity">Suspicious Activity</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div>
+                                <label className="text-sm font-medium">Notes</label>
+                                <Textarea 
+                                    value={excNotes} 
+                                    onChange={(e) => setExcNotes(e.target.value)} 
+                                    placeholder="Add notes or resolution details..."
+                                    className="mt-1" 
+                                    rows={3} 
+                                />
+                            </div>
+                            <DialogFooter className="flex gap-2 pt-1">
+                                <Button variant="outline" className="flex-1" onClick={() => { setExcEditOpen(false); setEditingException(null); }}>Cancel</Button>
+                                <Button className="flex-1" onClick={() => {
+                                    if (!editingException) return;
+                                    updateException(editingException.id, { flag: excFlag, notes: excNotes });
+                                    appendEvent({ 
+                                        employeeId: editingException.employeeId, 
+                                        eventType: "EXCEPTION_UPDATED", 
+                                        timestampUTC: new Date().toISOString(), 
+                                        performedBy: currentUser.id, 
+                                        description: `Updated exception for ${getEmpName(editingException.employeeId)} on ${editingException.date}: ${excFlag.replace(/_/g, " ")}`, 
+                                        metadata: { exceptionId: editingException.id, flag: excFlag, notes: excNotes } 
+                                    });
+                                    toast.success("Exception updated");
+                                    setExcEditOpen(false);
+                                    setEditingException(null);
+                                }}>Save Changes</Button>
+                            </DialogFooter>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
 
             {/* Check-In Dialog */}
             <Dialog open={checkInOpen} onOpenChange={setCheckInOpen}>

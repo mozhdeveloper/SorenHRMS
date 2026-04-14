@@ -44,7 +44,7 @@ import {
     TabsList,
     TabsTrigger,
 } from "@/components/ui/tabs";
-import { Calendar, Plus, Pencil, Trash2, Clock, CalendarDays, Filter, Video, Users } from "lucide-react";
+import { Calendar, Plus, Pencil, Trash2, Clock, CalendarDays, Filter, Video, Users, XCircle } from "lucide-react";
 import { format, parseISO, isAfter, isBefore, isToday, startOfDay } from "date-fns";
 import { toast } from "sonner";
 import type { CalendarEvent } from "@/types";
@@ -371,8 +371,8 @@ export default function EventsPage() {
                                 />
                             </div>
                             <Select value={typeFilter} onValueChange={setTypeFilter}>
-                                <SelectTrigger className="w-32">
-                                    <Filter className="h-4 w-4 mr-2" />
+                                <SelectTrigger className="w-[160px]">
+                                    <Filter className="h-4 w-4 mr-2 shrink-0" />
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -382,6 +382,16 @@ export default function EventsPage() {
                                     ))}
                                 </SelectContent>
                             </Select>
+                            {(searchQuery || typeFilter !== "all") && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => { setSearchQuery(""); setTypeFilter("all"); }}
+                                    className="h-9 text-xs gap-1"
+                                >
+                                    <XCircle className="h-3 w-3" /> Clear
+                                </Button>
+                            )}
                         </div>
                     </div>
                 </CardHeader>

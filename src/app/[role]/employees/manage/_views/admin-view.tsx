@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Slider } from "@/components/ui/slider";
 import { nanoid } from "nanoid";
-import { Search, SlidersHorizontal, Eye, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, UserMinus, Pencil, Mail, MapPin, Phone, Cake, DollarSign, RefreshCw, KeyRound, ShieldCheck, Briefcase, User, FolderKanban, Users, Tag, Crown, Building2, Receipt, Calculator } from "lucide-react";
+import { Search, SlidersHorizontal, Eye, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, UserMinus, Pencil, Mail, MapPin, Phone, Cake, DollarSign, RefreshCw, KeyRound, ShieldCheck, Briefcase, User, FolderKanban, Users, Tag, Crown, Building2, Receipt, Calculator, XCircle } from "lucide-react";
 import { getInitials, formatCurrency, formatDate, validatePhone } from "@/lib/format";
 import Link from "next/link";
 import { useRoleHref } from "@/lib/hooks/use-role-href";
@@ -1310,6 +1310,32 @@ export default function AdminEmployeesView() {
                                     <SelectTrigger className="w-full sm:w-[130px]"><SelectValue placeholder="Role" /></SelectTrigger>
                                     <SelectContent position="popper" className="z-50"><SelectItem value="all">All Roles</SelectItem><SelectItem value="admin">Admin</SelectItem><SelectItem value="hr">HR</SelectItem><SelectItem value="finance">Finance</SelectItem><SelectItem value="payroll_admin">Payroll Admin</SelectItem><SelectItem value="supervisor">Supervisor</SelectItem><SelectItem value="employee">Employee</SelectItem><SelectItem value="auditor">Auditor</SelectItem></SelectContent>
                                 </Select>
+                                <Select value={departmentFilter} onValueChange={(v) => { setDepartmentFilter(v); setPage(1); }}>
+                                    <SelectTrigger className="w-full sm:w-[160px]"><SelectValue placeholder="All Departments" /></SelectTrigger>
+                                    <SelectContent position="popper" className="z-50">
+                                        <SelectItem value="all">All Departments</SelectItem>
+                                        {departments.filter((d) => d.isActive).map((d) => (
+                                            <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                {(searchQuery || statusFilter !== "all" || workTypeFilter !== "all" || roleFilter !== "all" || departmentFilter !== "all") && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                            setSearchQuery("");
+                                            setStatusFilter("all");
+                                            setWorkTypeFilter("all");
+                                            setRoleFilter("all");
+                                            setDepartmentFilter("all");
+                                            setPage(1);
+                                        }}
+                                        className="h-9 text-xs gap-1"
+                                    >
+                                        <XCircle className="h-3 w-3" /> Clear
+                                    </Button>
+                                )}
                                 <Sheet>
                                     <SheetTrigger asChild>
                                         <Button variant="outline" size="sm" className="gap-1.5 relative">
@@ -1704,6 +1730,16 @@ export default function AdminEmployeesView() {
                                         ))}
                                     </SelectContent>
                                 </Select>
+                                {(acctSearch || acctRoleFilter !== "all") && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => { setAcctSearch(""); setAcctRoleFilter("all"); }}
+                                        className="h-9 text-xs gap-1"
+                                    >
+                                        <XCircle className="h-3 w-3" /> Clear
+                                    </Button>
+                                )}
                                 {!USE_DEMO_MODE && (
                                     <Button variant="outline" size="sm" className="gap-1.5 group" onClick={refreshAccounts} disabled={accountsLoading}>
                                         <RefreshCw className={`h-3.5 w-3.5 transition-transform duration-500 ${accountsLoading ? "animate-spin" : "group-hover:rotate-180"}`} /> Refresh
@@ -1917,6 +1953,16 @@ export default function AdminEmployeesView() {
                                         <SelectItem value="inactive">Inactive</SelectItem>
                                     </SelectContent>
                                 </Select>
+                                {(jtSearch || jtDeptFilter !== "all" || jtStatusFilter !== "all") && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => { setJtSearch(""); setJtDeptFilter("all"); setJtStatusFilter("all"); }}
+                                        className="h-9 text-xs gap-1"
+                                    >
+                                        <XCircle className="h-3 w-3" /> Clear
+                                    </Button>
+                                )}
                             </div>
                         </CardContent>
                     </Card>

@@ -63,13 +63,13 @@ export type OvertimeStatus = "pending" | "approved" | "rejected";
 export type AdjustmentType = "earnings" | "deduction" | "net_correction" | "statutory_correction";
 export type AdjustmentStatus = "pending" | "approved" | "applied" | "rejected";
 export type SalaryChangeStatus = "pending" | "approved" | "rejected";
-export type AttendanceFlag = "missing_in" | "missing_out" | "out_of_geofence" | "duplicate_scan" | "device_mismatch" | "overtime_without_approval";
+export type AttendanceFlag = "missing_in" | "missing_out" | "out_of_geofence" | "duplicate_scan" | "device_mismatch" | "overtime_without_approval" | "late_arrival" | "early_departure" | "suspicious_activity";
 export type AttendanceEventType =
   | "IN" | "OUT" | "BREAK_START" | "BREAK_END"
   | "OVERRIDE" | "BULK_OVERRIDE"
   | "MARK_ABSENT" | "MARK_PRESENT"
   | "OT_APPROVED" | "OT_REJECTED" | "OT_SUBMITTED"
-  | "EXCEPTION_RESOLVED" | "EXCEPTION_SCANNED"
+  | "EXCEPTION_RESOLVED" | "EXCEPTION_SCANNED" | "EXCEPTION_REOPENED" | "EXCEPTION_DELETED" | "EXCEPTION_UPDATED"
   | "HOLIDAY_ADDED" | "HOLIDAY_UPDATED" | "HOLIDAY_DELETED"
   | "CSV_IMPORTED" | "CSV_EXPORTED"
   | "PENALTY_APPLIED" | "PENALTY_CLEARED"
