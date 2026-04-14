@@ -47,7 +47,8 @@ import {
     UserCircle,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useCallback, memo } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 const iconMap: Record<string, React.ElementType> = {
     LayoutDashboard,
@@ -77,25 +78,46 @@ const iconMap: Record<string, React.ElementType> = {
     UserCircle,
 };
 
-export function Sidebar() {
+function SidebarComponent() {
     const pathname = usePathname();
-    const role = useAuthStore((s) => s.currentUser.role);
-    const currentUser = useAuthStore((s) => s.currentUser);
-    const { sidebarOpen, toggleSidebar, mobileSidebarOpen, setMobileSidebarOpen } = useUIStore();
+    
+    // Consolidated auth store selector
+    const { role, currentUserId, currentUserEmail, currentUserName } = useAuthStore(
+        useShallow((s) => ({
+            role: s.currentUser.role,
+            currentUserId: s.currentUser.id,
+            currentUserEmail: s.currentUser.email,
+            currentUserName: s.currentUser.name,
+        }))
+    );
+    
+    // Consolidated UI store selector
+    const { sidebarOpen, toggleSidebar, mobileSidebarOpen, setMobileSidebarOpen } = useUIStore(
+        useShallow((s) => ({
+            sidebarOpen: s.sidebarOpen,
+            toggleSidebar: s.toggleSidebar,
+            mobileSidebarOpen: s.mobileSidebarOpen,
+            setMobileSidebarOpen: s.setMobileSidebarOpen,
+        }))
+    );
+    
     const hasPermission = useRolesStore((s) => s.hasPermission);
     const getVisiblePages = usePageBuilderStore((s) => s.getVisiblePages);
     const customPages = useMemo(() => getVisiblePages(role), [getVisiblePages, role]);
 
-    // Appearance store
-    const modules = useAppearanceStore((s) => s.modules);
-    const navOverrides = useAppearanceStore((s) => s.navOverrides);
-    const sidebarVariant = useAppearanceStore((s) => s.sidebarVariant);
-    const logoUrl = useAppearanceStore((s) => s.logoUrl);
-    const companyName = useAppearanceStore((s) => s.companyName);
-    const logoTextVisible = useAppearanceStore((s) => s.logoTextVisible);
+    // Consolidated appearance store selector
+    const { modules, navOverrides, sidebarVariant, logoUrl, companyName, logoTextVisible } = useAppearanceStore(
+        useShallow((s) => ({
+            modules: s.modules,
+            navOverrides: s.navOverrides,
+            sidebarVariant: s.sidebarVariant,
+            logoUrl: s.logoUrl,
+            companyName: s.companyName,
+            logoTextVisible: s.logoTextVisible,
+        }))
+    );
 
     // Unread messages badge
-    const currentUserId = useAuthStore((s) => s.currentUser.id);
     const getTotalUnreadForEmployee = useMessagingStore((s) => s.getTotalUnreadForEmployee);
     const totalUnreadMsgs = getTotalUnreadForEmployee(currentUserId);
 
@@ -104,10 +126,10 @@ export function Sidebar() {
     const getUnreadCountForEmployee = useNotificationsStore((s) => s.getUnreadCountForEmployee);
     const currentEmployeeId = useMemo(() => {
         const emp = employees.find(
-            (e) => e.profileId === currentUser.id || e.email?.toLowerCase() === currentUser.email?.toLowerCase() || e.name === currentUser.name
+            (e) => e.profileId === currentUserId || e.email?.toLowerCase() === currentUserEmail?.toLowerCase() || e.name === currentUserName
         );
         return emp?.id;
-    }, [employees, currentUser]);
+    }, [employees, currentUserId, currentUserEmail, currentUserName]);
     const totalUnreadNotifications = currentEmployeeId ? getUnreadCountForEmployee(currentEmployeeId) : 0;
 
     // Check if employee is assigned to a face-recognition project
@@ -115,12 +137,12 @@ export function Sidebar() {
     const hasFaceProject = useMemo(() => {
         if (role !== "employee" && role !== "supervisor") return false;
         const myEmp = employees.find(
-            (e) => e.profileId === currentUser.id || e.email?.toLowerCase() === currentUser.email?.toLowerCase() || e.name === currentUser.name
+            (e) => e.profileId === currentUserId || e.email?.toLowerCase() === currentUserEmail?.toLowerCase() || e.name === currentUserName
         );
         if (!myEmp) return false;
         const project = getProjectForEmployee(myEmp.id);
         return project?.verificationMethod === "face_only";
-    }, [role, employees, currentUser, getProjectForEmployee]);
+    }, [role, employees, currentUserId, currentUserEmail, currentUserName, getProjectForEmployee]);
 
     // Permission-based filtering + module flags + nav overrides
     const filtered = useMemo(() => {
@@ -394,3 +416,6 @@ export function Sidebar() {
         </>
     );
 }
+
+// Memoize to prevent unnecessary re-renders when parent (AppShell) re-renders
+export const Sidebar = memo(SidebarComponent);
