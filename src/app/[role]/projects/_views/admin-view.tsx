@@ -401,7 +401,6 @@ export default function AdminProjectsView() {
 // ─── Inline verification method badge with quick-change dropdown ──────────
 const VERIFICATION_META: Record<VerificationMethod, { label: string; icon: React.ElementType; color: string }> = {
     face_only: { label: "Face Only", icon: ScanFace, color: "bg-violet-500/15 text-violet-700 dark:text-violet-400" },
-    face_or_qr: { label: "Face or QR", icon: ScanFace, color: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-400" },
     qr_only: { label: "QR Only", icon: QrCode, color: "bg-blue-500/15 text-blue-700 dark:text-blue-400" },
     manual_only: { label: "Manual", icon: UserCheck, color: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
 };
@@ -417,7 +416,6 @@ function VerificationBadge({ method, onUpdate }: { method: VerificationMethod; o
             </SelectTrigger>
             <SelectContent>
                 <SelectItem value="face_only"><span className="flex items-center gap-1.5"><ScanFace className="h-3 w-3" /> Face Only</span></SelectItem>
-                <SelectItem value="face_or_qr"><span className="flex items-center gap-1.5"><ScanFace className="h-3 w-3" /> Face or QR</span></SelectItem>
                 <SelectItem value="qr_only"><span className="flex items-center gap-1.5"><QrCode className="h-3 w-3" /> QR Only</span></SelectItem>
                 <SelectItem value="manual_only"><span className="flex items-center gap-1.5"><UserCheck className="h-3 w-3" /> Manual</span></SelectItem>
             </SelectContent>

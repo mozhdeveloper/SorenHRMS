@@ -45,6 +45,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   const swRegistrationRef = useRef<ServiceWorkerRegistration | null>(null);
   
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const currentUserRole = useAuthStore((s) => s.currentUser?.role);
   const logs = useNotificationsStore((s) => s.logs);
   const lastLogRef = useRef<string | null>(null);
 
@@ -106,10 +107,16 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     lastLogRef.current = latest.id;
 
     // Show browser notification for new notification logs
+    // Prepend role prefix so the service worker navigates to the correct [role]/ route
+    const rawLink = latest.link || "/notifications";
+    const rolePrefix = currentUserRole ? `/${currentUserRole}` : "";
+    const fullUrl = rawLink.startsWith("/") && !rawLink.startsWith(rolePrefix)
+      ? `${rolePrefix}${rawLink}`
+      : rawLink;
     showNotification(latest.subject, {
       body: latest.body,
       tag: latest.id,
-      data: { url: latest.link || "/notifications" },
+      data: { url: fullUrl },
     });
   }, [logs, permission, isSupported, isAuthenticated]);
 

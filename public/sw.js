@@ -119,6 +119,9 @@ self.addEventListener('push', (event) => {
   );
 });
 
+// Known role slugs used in the [role]/ dynamic route segment
+const KNOWN_ROLES = ['admin', 'hr', 'finance', 'employee', 'supervisor', 'payroll_admin', 'auditor'];
+
 // Notification click handler
 self.addEventListener('notificationclick', (event) => {
   console.log('[SW] Notification clicked:', event);
@@ -129,11 +132,29 @@ self.addEventListener('notificationclick', (event) => {
     return;
   }
 
-  // Get the URL to open
-  const urlToOpen = event.notification.data?.url || '/notifications';
+  // Get the URL to open (may or may not already have a role prefix)
+  const rawUrl = event.notification.data?.url || '/notifications';
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      let urlToOpen = rawUrl;
+
+      // If the URL doesn't already start with a known role prefix, try to
+      // extract the role from an existing open window and prepend it.
+      const firstSegment = rawUrl.split('/').filter(Boolean)[0];
+      if (!KNOWN_ROLES.includes(firstSegment)) {
+        for (const client of clientList) {
+          try {
+            const clientUrl = new URL(client.url);
+            const clientRole = clientUrl.pathname.split('/').filter(Boolean)[0];
+            if (KNOWN_ROLES.includes(clientRole)) {
+              urlToOpen = '/' + clientRole + rawUrl;
+              break;
+            }
+          } catch (e) { /* ignore */ }
+        }
+      }
+
       // If there's already a window open, focus it and navigate
       for (const client of clientList) {
         if ('focus' in client) {

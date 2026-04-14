@@ -1047,7 +1047,7 @@ export type ServiceResult<T> =
 
 // ─── Kiosk Face Recognition & Enhanced Attendance ────────────────────────────
 
-export type VerificationMethod = "face_only" | "qr_only" | "face_or_qr" | "manual_only";
+export type VerificationMethod = "face_only" | "qr_only" | "manual_only";
 
 export interface FaceEnrollment {
   id: string;

@@ -79,7 +79,7 @@ export default function FaceEnrollmentPage() {
         }
         // Redirect only if employee is assigned to a project that explicitly
         // uses a non-face verification method (qr_only or manual_only).
-        // Allow enrollment for face_only, face_or_qr, or no project (face is default).
+        // Allow enrollment for face_only projects or no project.
         if (myProject && (myProject.verificationMethod === "qr_only" || myProject.verificationMethod === "manual_only")) {
             router.replace(`/${currentUser.role}/attendance`);
         }

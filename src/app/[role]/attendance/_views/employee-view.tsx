@@ -500,8 +500,8 @@ export default function EmployeeView() {
                     );
                 })()}
 
-                {/* ── Face Enrollment Reminder (face_only / face_or_qr / unassigned employees) ── */}
-                {myProject?.verificationMethod !== "qr_only" && myProject?.verificationMethod !== "manual_only" && myEmployeeId && (
+                {/* ── Face Enrollment Reminder (face_only projects only) ── */}
+                {myProject?.verificationMethod === "face_only" && myEmployeeId && (
                     <EnrollmentReminder employeeId={myEmployeeId} />
                 )}
 
@@ -899,10 +899,25 @@ export default function EmployeeView() {
                                     />
                                 </div>
                             )}
-                            {(!locationConfig.requireSelfie || selfieDataUrl) && myProject?.verificationMethod !== "qr_only" && (
+                            {(!locationConfig.requireSelfie || selfieDataUrl) && myProject?.verificationMethod === "face_only" && (
                                 <div className="pt-1">
                                     <p className="text-xs text-muted-foreground text-center mb-3">{locationConfig.requireSelfie ? "Step 3" : "Step 2"}: Verify your identity</p>
-                                    <RealFaceVerification onVerified={handleFaceVerified} autoStart employeeId={myEmployeeId} employeeName={currentUser.name} required={myProject?.verificationMethod === "face_only"} />
+                                    <RealFaceVerification onVerified={handleFaceVerified} autoStart employeeId={myEmployeeId} employeeName={currentUser.name} required />
+                                </div>
+                            )}
+                            {(!locationConfig.requireSelfie || selfieDataUrl) && (myProject?.verificationMethod === "manual_only" || !myProject) && (
+                                <div className="pt-1 flex justify-center">
+                                    <Button
+                                        className="w-full gap-2"
+                                        onClick={() => {
+                                            if (!myEmployeeId) return;
+                                            checkIn(myEmployeeId, myProject?.id);
+                                            setStep("done");
+                                            toast.success("Check-in successful!");
+                                        }}
+                                    >
+                                        <LogIn className="h-4 w-4" /> Confirm Check-In
+                                    </Button>
                                 </div>
                             )}
                         </>)}

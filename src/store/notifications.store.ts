@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { NotificationLog, NotificationType, NotificationChannel, NotificationRule, NotificationTrigger } from "@/types";
+import { useEmployeesStore } from "@/store/employees.store";
 
 // ─── Default Rules ────────────────────────────────────────────
 
@@ -207,68 +208,47 @@ export const useNotificationsStore = create<NotificationsState>()(
                 // Auto-generate link based on trigger type if not provided
                 const autoLink = link || getDefaultLinkForTrigger(trigger);
 
-                // Log different channels
-                if (channel === "email" || channel === "both") {
-                    set((s) => ({
-                        logs: [
-                            {
-                                id: `NOTIF-${nanoid(8)}`,
-                                employeeId: recipientEmployeeId,
-                                type: trigger,
-                                channel: "email" as const,
-                                subject,
-                                body,
-                                sentAt: new Date().toISOString(),
-                                status: "simulated" as const,
-                                recipientEmail,
-                                link: autoLink,
-                            },
-                            ...s.logs,
-                        ].slice(0, 500),
-                    }));
-                }
-                if (channel === "sms" || channel === "both") {
-                    const smsBody = rule.smsTemplate ? renderTemplate(rule.smsTemplate, vars) : body;
-                    set((s) => ({
-                        logs: [
-                            {
-                                id: `NOTIF-${nanoid(8)}`,
-                                employeeId: recipientEmployeeId,
-                                type: trigger,
-                                channel: "sms" as const,
-                                subject,
-                                body: smsBody,
-                                sentAt: new Date().toISOString(),
-                                status: "simulated" as const,
-                                recipientPhone,
-                                link: autoLink,
-                            },
-                            ...s.logs,
-                        ].slice(0, 500),
-                    }));
-                }
-                if (channel === "in_app") {
-                    set((s) => ({
-                        logs: [
-                            {
-                                id: `NOTIF-${nanoid(8)}`,
-                                employeeId: recipientEmployeeId,
-                                type: trigger,
-                                channel: "in_app" as const,
-                                subject,
-                                body,
-                                sentAt: new Date().toISOString(),
-                                status: "simulated" as const,
-                                link: autoLink,
-                            },
-                            ...s.logs,
-                        ].slice(0, 500),
-                    }));
-                }
+                // Always create exactly ONE log entry per dispatch regardless of channel.
+                // Previously channel="both" created two entries (email + SMS), causing
+                // duplicate notifications visible to the employee.
+                const logBody =
+                    (channel === "sms" || channel === "both") && rule.smsTemplate
+                        ? renderTemplate(rule.smsTemplate, vars)
+                        : body;
+
+                set((s) => ({
+                    logs: [
+                        {
+                            id: `NOTIF-${nanoid(8)}`,
+                            employeeId: recipientEmployeeId,
+                            type: trigger,
+                            channel: channel as NotificationLog["channel"],
+                            subject,
+                            body: logBody,
+                            sentAt: new Date().toISOString(),
+                            status: "simulated" as const,
+                            recipientEmail: channel === "email" || channel === "both" ? recipientEmail : undefined,
+                            recipientPhone: channel === "sms" || channel === "both" ? recipientPhone : undefined,
+                            link: autoLink,
+                        },
+                        ...s.logs,
+                    ].slice(0, 500),
+                }));
 
                 // ─── Fire real push notification (fire-and-forget) ───
                 // Send to /api/push/send to deliver via Web Push API
                 // This works even when the browser tab is closed (PWA)
+                // Resolve recipient role to build a role-prefixed URL for the push payload.
+                // Without the prefix the service worker would navigate to e.g. /tasks/TSK-XXX
+                // which doesn't exist — the real route is /{role}/tasks/TSK-XXX.
+                let pushUrl = autoLink;
+                try {
+                    const emp = useEmployeesStore.getState().employees.find((e) => e.id === recipientEmployeeId);
+                    if (emp?.role) {
+                        pushUrl = `/${emp.role}${autoLink}`;
+                    }
+                } catch { /* best-effort */ }
+
                 fetch("/api/push/send", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -276,7 +256,7 @@ export const useNotificationsStore = create<NotificationsState>()(
                         employeeId: recipientEmployeeId,
                         title: subject,
                         body,
-                        url: autoLink,
+                        url: pushUrl,
                         tag: `${trigger}-${Date.now()}`,
                     }),
                 }).catch((err) => {
