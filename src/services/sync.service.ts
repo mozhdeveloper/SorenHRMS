@@ -1271,6 +1271,58 @@ export function startRealtime(): void {
         });
       })
     )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "announcements" },
+      safe(({ new: row }: { new: Record<string, unknown> }) => {
+        const ann = keysToCamel(row) as Record<string, unknown>;
+        useMessagingStore.setState((s) => ({
+          announcements: s.announcements.map((a) =>
+            a.id === ann.id
+              ? (JSON.stringify(a) !== JSON.stringify(ann) ? { ...a, ...ann } as typeof a : a)
+              : a
+          ),
+        }));
+      })
+    )
+    // ── text_channels ────────────────────────────────────────
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "text_channels" },
+      safe(({ new: row }: { new: Record<string, unknown> }) => {
+        const ch = keysToCamel(row) as Record<string, unknown>;
+        useMessagingStore.setState((s) => {
+          if (s.channels.find((c) => c.id === ch.id)) return s;
+          return { channels: [...s.channels, ch as unknown as typeof s.channels[0]] };
+        });
+      })
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "text_channels" },
+      safe(({ new: row }: { new: Record<string, unknown> }) => {
+        const ch = keysToCamel(row) as Record<string, unknown>;
+        useMessagingStore.setState((s) => ({
+          channels: s.channels.map((c) =>
+            c.id === ch.id
+              ? (JSON.stringify(c) !== JSON.stringify(ch) ? { ...c, ...ch } as typeof c : c)
+              : c
+          ),
+        }));
+      })
+    )
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "text_channels" },
+      safe(({ old: row }: { old: Record<string, unknown> }) => {
+        const id = row?.id as string;
+        if (!id) return;
+        useMessagingStore.setState((s) => ({
+          channels: s.channels.filter((c) => c.id !== id),
+          messages: s.messages.filter((m) => m.channelId !== id),
+        }));
+      })
+    )
     // ── channel_messages ─────────────────────────────────────
     .on(
       "postgres_changes",
@@ -1281,6 +1333,20 @@ export function startRealtime(): void {
           if (s.messages.find((m) => m.id === msg.id)) return s;
           return { messages: [...s.messages, msg as unknown as typeof s.messages[0]] };
         });
+      })
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "channel_messages" },
+      safe(({ new: row }: { new: Record<string, unknown> }) => {
+        const msg = keysToCamel(row) as Record<string, unknown>;
+        useMessagingStore.setState((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === msg.id
+              ? (JSON.stringify(m) !== JSON.stringify(msg) ? { ...m, ...msg } as typeof m : m)
+              : m
+          ),
+        }));
       })
     )
     // ── tasks ────────────────────────────────────────────────
@@ -1562,7 +1628,7 @@ export function startRealtime(): void {
     .subscribe((status: string, err?: unknown) => {
       if (status === "SUBSCRIBED") {
         _realtimeRetries = 0;
-        console.log("[realtime] Connected — watching 23 tables");
+        console.log("[realtime] Connected — watching 24 tables");
       }
       if (status === "CHANNEL_ERROR") {
         const errMsg = err instanceof Error ? err.message : (typeof err === "string" ? err : "");
