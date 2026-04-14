@@ -208,6 +208,9 @@ export const useNotificationsStore = create<NotificationsState>()(
                 // Auto-generate link based on trigger type if not provided
                 const autoLink = link || getDefaultLinkForTrigger(trigger);
 
+                // Generate unique notification ID upfront so we can use it for both log and push tag
+                const notificationId = `NOTIF-${nanoid(8)}`;
+
                 // Always create exactly ONE log entry per dispatch regardless of channel.
                 // Previously channel="both" created two entries (email + SMS), causing
                 // duplicate notifications visible to the employee.
@@ -219,7 +222,7 @@ export const useNotificationsStore = create<NotificationsState>()(
                 set((s) => ({
                     logs: [
                         {
-                            id: `NOTIF-${nanoid(8)}`,
+                            id: notificationId,
                             employeeId: recipientEmployeeId,
                             type: trigger,
                             channel: channel as NotificationLog["channel"],
@@ -257,7 +260,7 @@ export const useNotificationsStore = create<NotificationsState>()(
                         title: subject,
                         body,
                         url: pushUrl,
-                        tag: `${trigger}-${Date.now()}`,
+                        tag: notificationId, // Use same ID for deduplication with in-app notifications
                     }),
                 }).catch((err) => {
                     // Silently fail — push is best-effort

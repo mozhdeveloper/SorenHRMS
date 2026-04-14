@@ -1,6 +1,33 @@
 import { useNotificationsStore } from "@/store/notifications.store";
+import { useEmployeesStore } from "@/store/employees.store";
 import { toast } from "sonner";
 import type { NotificationType, NotificationTrigger } from "@/types";
+
+/** Map notification type to its default navigation link (without role prefix) */
+const TYPE_LINK_MAP: Record<string, string> = {
+    payslip_published: "/payroll",
+    payslip_signed: "/payroll",
+    payslip_unsigned_reminder: "/payroll",
+    payment_confirmed: "/payroll",
+    leave_submitted: "/leave",
+    leave_approved: "/leave",
+    leave_rejected: "/leave",
+    attendance_missing: "/attendance",
+    geofence_violation: "/attendance",
+    location_disabled: "/attendance",
+    loan_reminder: "/loans",
+    overtime_submitted: "/attendance",
+    birthday: "/dashboard",
+    contract_expiry: "/employees/manage",
+    daily_summary: "/dashboard",
+    assignment: "/projects",
+    reassignment: "/projects",
+    absence: "/attendance",
+    task_assigned: "/tasks",
+    task_submitted: "/tasks",
+    task_verified: "/tasks",
+    task_rejected: "/tasks",
+};
 
 interface SendNotificationParams {
     type: NotificationType;
@@ -22,9 +49,53 @@ interface SendNotificationParams {
 export function sendNotification(params: SendNotificationParams): void {
     const { employeeId, type, subject, body, channel = "email", link, employeeName, employeeEmail, employeePhone } = params;
 
-    // Save to notification store
-    const addLog = useNotificationsStore.getState().addLog;
-    addLog({ employeeId, type, subject, body, channel, link, recipientEmail: employeeEmail, recipientPhone: employeePhone });
+    // Auto-generate link based on notification type if not explicitly provided
+    const resolvedLink = link || TYPE_LINK_MAP[type] || "/notifications";
+
+    // Generate unique notification ID upfront so we can use it for both log and push tag
+    const notificationId = `NOTIF-${Math.random().toString(36).substring(2, 10)}`;
+
+    // Save to notification store with our pre-generated ID
+    const state = useNotificationsStore.getState();
+    useNotificationsStore.setState({
+        logs: [
+            {
+                id: notificationId,
+                employeeId,
+                type,
+                subject,
+                body,
+                channel,
+                link: resolvedLink,
+                recipientEmail: employeeEmail,
+                recipientPhone: employeePhone,
+                sentAt: new Date().toISOString(),
+                status: "simulated" as const,
+            },
+            ...state.logs,
+        ].slice(0, 500),
+    });
+
+    // Fire push notification to the recipient (fire-and-forget)
+    let pushUrl = resolvedLink;
+    try {
+        const emp = useEmployeesStore.getState().employees.find((e) => e.id === employeeId);
+        if (emp?.role) {
+            pushUrl = `/${emp.role}${resolvedLink}`;
+        }
+    } catch { /* best-effort */ }
+
+    fetch("/api/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            employeeId,
+            title: subject,
+            body,
+            url: pushUrl,
+            tag: notificationId, // Use same ID for deduplication with in-app notifications
+        }),
+    }).catch(() => { /* push is best-effort */ });
 
     // Show toast simulating dispatch
     const toLabel = employeeName ?? employeeId;

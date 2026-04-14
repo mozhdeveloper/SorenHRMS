@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuthStore } from "@/store/auth.store";
+import { useEmployeesStore } from "@/store/employees.store";
 import { useNotificationsStore } from "@/store/notifications.store";
 
 // VAPID public key for push subscription
@@ -45,7 +46,9 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   const swRegistrationRef = useRef<ServiceWorkerRegistration | null>(null);
   
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const currentUserRole = useAuthStore((s) => s.currentUser?.role);
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const currentUserRole = currentUser?.role;
+  const employees = useEmployeesStore((s) => s.employees);
   const logs = useNotificationsStore((s) => s.logs);
   const lastLogRef = useRef<string | null>(null);
 
@@ -98,11 +101,17 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     if (!isSupported || permission !== "granted" || !isAuthenticated) return;
     if (logs.length === 0) return;
 
+    // Resolve the current user's EMP-prefixed employee ID
+    const currentEmployeeId = employees.find(
+      (e) => e.profileId === currentUser?.id || e.email?.toLowerCase() === currentUser?.email?.toLowerCase()
+    )?.id;
+
     const latest = logs[0];
     if (!latest || latest.id === lastLogRef.current) return;
     
-    // Only show notification for unread messages
+    // Only show notification for unread messages addressed to the current user
     if (latest.read) return;
+    if (currentEmployeeId && latest.employeeId !== currentEmployeeId) return;
     
     lastLogRef.current = latest.id;
 
@@ -118,7 +127,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       tag: latest.id,
       data: { url: fullUrl },
     });
-  }, [logs, permission, isSupported, isAuthenticated]);
+  }, [logs, permission, isSupported, isAuthenticated, employees, currentUser, currentUserRole]);
 
   /**
    * Request notification permission and subscribe to push.
