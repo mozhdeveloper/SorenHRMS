@@ -1631,7 +1631,7 @@ export function startRealtime(): void {
         console.log("[realtime] Connected — watching 24 tables");
       }
       if (status === "CHANNEL_ERROR") {
-        const errMsg = err instanceof Error ? err.message : (typeof err === "string" ? err : "");
+        const errMsg = err instanceof Error ? err.message : (typeof err === "string" ? err : JSON.stringify(err) ?? "");
         if (!errMsg) {
           // Empty error usually means misconfigured credentials — don't retry
           console.warn("[realtime] Channel error (check Supabase URL/key configuration)");
@@ -1639,14 +1639,29 @@ export function startRealtime(): void {
         }
         // "mismatch between server and client bindings" = tables missing from
         // supabase_realtime publication. This is a config issue — retrying won't help.
-        // Run migration 040_realtime_missing_tables_disable_rls.sql to fix.
         if (errMsg.includes("mismatch")) {
           console.warn(
             "[realtime] Server/client binding mismatch — run migration 040 to add missing tables to supabase_realtime publication"
           );
           return;
         }
-        console.error("[realtime] Channel error", errMsg);
+        // JWT expired — refresh the session first, then reconnect.
+        // This is normal behaviour when a browser tab is idle and the access token expires.
+        if (errMsg.includes("InvalidJWTToken") || errMsg.includes("Token has expired") || errMsg.includes("expired")) {
+          console.info("[realtime] JWT expired — refreshing session before reconnect");
+          const client = createClient();
+          client.auth.refreshSession().then(({ error: refreshErr }: { error: Error | null }) => {
+            if (refreshErr) {
+              console.info("[realtime] Session refresh failed — user may need to log in again");
+              // Don't spam retries — the auth listener will redirect when needed
+              return;
+            }
+            // Reconnect after a short delay to let the new token propagate
+            setTimeout(() => startRealtime(), 1000);
+          });
+          return;
+        }
+        console.warn("[realtime] Channel error", errMsg);
         // Auto-retry with backoff (only for transient errors)
         if (_realtimeRetries < MAX_RETRIES) {
           _realtimeRetries++;
