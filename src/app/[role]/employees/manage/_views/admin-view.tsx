@@ -1705,8 +1705,8 @@ export default function AdminEmployeesView() {
                                     </SelectContent>
                                 </Select>
                                 {!USE_DEMO_MODE && (
-                                    <Button variant="outline" size="sm" className="gap-1.5" onClick={refreshAccounts} disabled={accountsLoading}>
-                                        <RefreshCw className={`h-3.5 w-3.5 ${accountsLoading ? "animate-spin" : ""}`} /> Refresh
+                                    <Button variant="outline" size="sm" className="gap-1.5 group" onClick={refreshAccounts} disabled={accountsLoading}>
+                                        <RefreshCw className={`h-3.5 w-3.5 transition-transform duration-500 ${accountsLoading ? "animate-spin" : "group-hover:rotate-180"}`} /> Refresh
                                     </Button>
                                 )}
                             </div>

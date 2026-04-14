@@ -147,7 +147,7 @@ export default function AdminMessagesView() {
     };
 
     return (
-        <div className="space-y-6 h-full flex flex-col">
+        <div className="space-y-3 h-full flex flex-col">
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
@@ -284,8 +284,8 @@ export default function AdminMessagesView() {
                 </TabsList>
 
                 {/* ── Channels Tab ────────────────────────────── */}
-                <TabsContent value="channels" className="mt-4 flex-1 min-h-0">
-                    <div className="grid lg:grid-cols-[280px_1fr] gap-4 h-[calc(100vh-260px)] min-h-[400px] max-h-[700px]">
+                <TabsContent value="channels" className="mt-2 flex-1 min-h-0">
+                    <div className="grid lg:grid-cols-[280px_1fr] gap-4 h-[calc(100vh-200px)] min-h-[400px]">
                         {/* Channel list */}
                         <Card className="border border-border/50 h-full">
                             <CardContent className="p-0 h-full">
@@ -294,10 +294,10 @@ export default function AdminMessagesView() {
                                         {channels.filter((c) => !c.isArchived).map((ch) => {
                                             const unread = getUnreadCount(ch.id, effectiveId);
                                             return (
-                                                <button
+                                                <div
                                                     key={ch.id}
                                                     onClick={() => setSelectedChannelId(ch.id)}
-                                                    className={`w-full flex items-center gap-2 rounded-lg px-3 py-2.5 text-left transition-colors ${
+                                                    className={`group w-full flex items-center gap-2 rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer ${
                                                         selectedChannelId === ch.id
                                                             ? "bg-primary/10 text-primary"
                                                             : "hover:bg-muted/50"
@@ -306,9 +306,25 @@ export default function AdminMessagesView() {
                                                     <Hash className="h-4 w-4 shrink-0 text-muted-foreground" />
                                                     <span className="text-sm font-medium truncate flex-1">{ch.name.replace("#", "")}</span>
                                                     {unread > 0 && (
-                                                        <Badge variant="default" className="text-[10px] h-5 min-w-5 justify-center">{unread}</Badge>
+                                                        <Badge variant="default" className="text-[10px] h-5 min-w-5 justify-center group-hover:hidden">{unread}</Badge>
                                                     )}
-                                                </button>
+                                                    <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+                                                        <button
+                                                            title="Archive"
+                                                            onClick={(e) => { e.stopPropagation(); archiveChannel(ch.id); if (selectedChannelId === ch.id) setSelectedChannelId(null); toast.success("Channel archived"); }}
+                                                            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                                        >
+                                                            <Archive className="h-3.5 w-3.5" />
+                                                        </button>
+                                                        <button
+                                                            title="Delete"
+                                                            onClick={(e) => { e.stopPropagation(); deleteChannel(ch.id); if (selectedChannelId === ch.id) setSelectedChannelId(null); toast.success("Channel deleted"); }}
+                                                            className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-600 transition-colors"
+                                                        >
+                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             );
                                         })}
 
@@ -357,18 +373,13 @@ export default function AdminMessagesView() {
                         <Card className="border border-border/50 flex flex-col h-full min-h-0">
                             {selectedChannel ? (
                                 <>
-                                    <CardHeader className="pb-2 border-b flex-row items-center justify-between space-y-0">
-                                        <div>
-                                            <CardTitle className="text-base">{selectedChannel.name}</CardTitle>
-                                            <p className="text-xs text-muted-foreground">{selectedChannel.memberEmployeeIds.length} members</p>
-                                        </div>
-                                        <div className="flex gap-1">
-                                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { archiveChannel(selectedChannel.id); setSelectedChannelId(null); toast.success("Channel archived"); }}>
-                                                <Archive className="h-3.5 w-3.5" />
-                                            </Button>
-                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-500/10" onClick={() => { deleteChannel(selectedChannel.id); setSelectedChannelId(null); toast.success("Channel deleted"); }}>
-                                                <Trash2 className="h-3.5 w-3.5" />
-                                            </Button>
+                                    <CardHeader className="py-2 px-4 border-b shrink-0 space-y-0">
+                                        <div className="flex items-center gap-2">
+                                            <Hash className="h-4 w-4 text-muted-foreground shrink-0" />
+                                            <div>
+                                                <CardTitle className="text-sm font-semibold leading-none">{selectedChannel.name.replace("#", "")}</CardTitle>
+                                                <p className="text-xs text-muted-foreground mt-0.5">{selectedChannel.memberEmployeeIds.length} members</p>
+                                            </div>
                                         </div>
                                     </CardHeader>
                                     <CardContent className="flex-1 p-0 flex flex-col overflow-hidden min-h-0">
