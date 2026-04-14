@@ -46,6 +46,7 @@ import { Search, SlidersHorizontal, Eye, ChevronUp, ChevronDown, ChevronLeft, Ch
 import { getInitials, formatCurrency, formatDate, validatePhone } from "@/lib/format";
 import Link from "next/link";
 import { useRoleHref } from "@/lib/hooks/use-role-href";
+import { sendNotification } from "@/lib/notifications";
 import { toast } from "sonner";
 import { useAuditStore } from "@/store/audit.store";
 import { Switch } from "@/components/ui/switch";
@@ -711,7 +712,21 @@ export default function AdminEmployeesView() {
         else unassignShift(editingEmp.id);
         const currentProject = getProjectForEmployee(editingEmp.id);
         if (currentProject && currentProject.id !== editProjectId) removeFromProject(currentProject.id, editingEmp.id);
-        if (editProjectId && editProjectId !== "none" && (!currentProject || currentProject.id !== editProjectId)) assignToProject(editProjectId, editingEmp.id);
+        if (editProjectId && editProjectId !== "none" && (!currentProject || currentProject.id !== editProjectId)) {
+            assignToProject(editProjectId, editingEmp.id);
+            // Send notification for new project assignment
+            const newProject = projects.find(p => p.id === editProjectId);
+            if (newProject) {
+                sendNotification({
+                    type: "assignment",
+                    employeeId: editingEmp.id,
+                    employeeName: editName,
+                    employeeEmail: editEmail,
+                    subject: `New Project Assignment: ${newProject.name}`,
+                    body: `Hi ${editName}, you have been assigned to "${newProject.name}". Please report to the project site. Contact HR for details.`,
+                });
+            }
+        }
         else if (editProjectId === "none" && currentProject) removeFromProject(currentProject.id, editingEmp.id);
 
         // Update deduction template assignments
@@ -1087,7 +1102,7 @@ export default function AdminEmployeesView() {
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                     <div><label className="text-sm font-medium">Work Type</label>
-                                        <Select value={editWorkType} onValueChange={(v) => setEditWorkType(v as WorkType)}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="WFO">Work From Office</SelectItem><SelectItem value="WFH">Work From Home</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem><SelectItem value="ONSITE">Full Onsite</SelectItem></SelectContent></Select>
+                                        <Select value={editWorkType} onValueChange={(v) => setEditWorkType(v as WorkType)}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent position="popper" className="z-50"><SelectItem value="WFO">Work From Office</SelectItem><SelectItem value="WFH">Work From Home</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem><SelectItem value="ONSITE">Full Onsite</SelectItem></SelectContent></Select>
                                     </div>
                                     <div><label className="text-sm font-medium">Monthly Salary (₱)</label><Input type="number" value={editSalary} onChange={(e) => setEditSalary(e.target.value)} className="mt-1" /></div>
                                     <div><label className="text-sm font-medium">Pay Frequency</label>
