@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth.store";
 import { useAppearanceStore } from "@/store/appearance.store";
@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 
 // Set to true to use local demo login (no Supabase required)
 const USE_DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
@@ -42,23 +43,31 @@ const PAYROLL_TEST_ACCOUNTS = [
 ];
 export default function LoginPage() {
     const router = useRouter();
-    const localLogin = useAuthStore((s) => s.login);
-    const setUser = useAuthStore((s) => s.setUser);
+    const { login: localLogin, setUser } = useAuthStore(
+        useShallow((s) => ({ login: s.login, setUser: s.setUser }))
+    );
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
     const [showPayrollAccounts, setShowPayrollAccounts] = useState(false);
     const employees = useEmployeesStore((s) => s.employees);
 
-    // Branding from appearance store
-    const loginHeading = useAppearanceStore((s) => s.loginHeading);
-    const loginSubheading = useAppearanceStore((s) => s.loginSubheading);
-    const loginBackground = useAppearanceStore((s) => s.loginBackground);
-    const loginBgColor = useAppearanceStore((s) => s.loginBgColor);
-    const loginCardStyle = useAppearanceStore((s) => s.loginCardStyle);
-    const logoUrl = useAppearanceStore((s) => s.logoUrl);
-    const companyName = useAppearanceStore((s) => s.companyName);
-    const brandTagline = useAppearanceStore((s) => s.brandTagline);
+    // Consolidated branding from appearance store
+    const {
+        loginHeading, loginSubheading, loginBackground, loginBgColor,
+        loginCardStyle, logoUrl, companyName, brandTagline
+    } = useAppearanceStore(
+        useShallow((s) => ({
+            loginHeading: s.loginHeading,
+            loginSubheading: s.loginSubheading,
+            loginBackground: s.loginBackground,
+            loginBgColor: s.loginBgColor,
+            loginCardStyle: s.loginCardStyle,
+            logoUrl: s.logoUrl,
+            companyName: s.companyName,
+            brandTagline: s.brandTagline,
+        }))
+    );
 
     const handleSupabaseLogin = async (loginEmail: string, loginPassword: string) => {
         setLoading(true);
@@ -98,26 +107,24 @@ export default function LoginPage() {
 
     const handleDemoLogin = (loginEmail: string, loginPassword: string) => {
         setLoading(true);
-        setTimeout(() => {
-            // Check employee status before allowing demo login
-            const emp = employees.find(
-                (e) => e.email?.toLowerCase() === loginEmail.toLowerCase()
-            );
-            if (emp && (emp.status === "inactive" || emp.status === "resigned")) {
-                setLoading(false);
-                router.push("/deactivated");
-                return;
-            }
-            const success = localLogin(loginEmail, loginPassword);
-            if (success) {
-                toast.success("Welcome back!");
-                const role = useAuthStore.getState().currentUser.role;
-                router.push(`/${role}/dashboard`);
-            } else {
-                toast.error("Invalid email or password");
-            }
+        // Check employee status before allowing demo login
+        const emp = employees.find(
+            (e) => e.email?.toLowerCase() === loginEmail.toLowerCase()
+        );
+        if (emp && (emp.status === "inactive" || emp.status === "resigned")) {
             setLoading(false);
-        }, 500);
+            router.push("/deactivated");
+            return;
+        }
+        const success = localLogin(loginEmail, loginPassword);
+        if (success) {
+            toast.success("Welcome back!");
+            const role = useAuthStore.getState().currentUser.role;
+            router.push(`/${role}/dashboard`);
+        } else {
+            toast.error("Invalid email or password");
+        }
+        setLoading(false);
     };
 
     const handleLogin = (e: React.FormEvent) => {

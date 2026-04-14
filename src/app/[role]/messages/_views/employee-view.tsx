@@ -211,11 +211,14 @@ export default function EmployeeMessagesView() {
                                                                     {!isMine && <span className="text-xs font-medium">{getEmpName(msg.employeeId)}</span>}
                                                                     <span className="text-[10px] text-muted-foreground">{formatDateTime(msg.createdAt)}</span>
                                                                 </div>
-                                                                <div className={`rounded-2xl px-3.5 py-2 text-sm leading-relaxed break-words whitespace-pre-wrap overflow-hidden ${
-                                                                    isMine
-                                                                        ? "bg-primary text-primary-foreground rounded-tr-sm"
-                                                                        : "bg-muted rounded-tl-sm"
-                                                                }`}>
+                                                                <div 
+                                                                    className={`rounded-lg px-3.5 py-2 text-sm leading-relaxed inline-block max-w-full text-left ${
+                                                                        isMine
+                                                                            ? "bg-primary text-primary-foreground"
+                                                                            : "bg-muted"
+                                                                    }`}
+                                                                    style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}
+                                                                >
                                                                     {msg.message}
                                                                 </div>
                                                             </div>
@@ -286,7 +289,7 @@ export default function EmployeeMessagesView() {
                                                     <h3 className="text-sm font-semibold">{ann.subject}</h3>
                                                     {!isRead && <Badge variant="default" className="text-[10px] shrink-0">New</Badge>}
                                                 </div>
-                                                <p className="text-sm text-muted-foreground leading-relaxed">{ann.body}</p>
+                                                <p className="text-sm text-muted-foreground leading-relaxed" style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}>{ann.body}</p>
                                             </div>
                                             <Badge variant="outline" className="text-[10px] gap-1 shrink-0 mt-0.5">
                                                 <ChannelIcon className="h-3 w-3" />
