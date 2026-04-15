@@ -15,6 +15,9 @@ import {
     SEED_CHANNEL_MESSAGES,
 } from "@/data/seed";
 import { useAuditStore } from "@/store/audit.store";
+import { useTasksStore } from "@/store/tasks.store";
+import { useNotificationsStore } from "@/store/notifications.store";
+import { useEmployeesStore } from "@/store/employees.store";
 
 export interface MessagingConfig {
     defaultChannel: MessageChannel;
@@ -101,6 +104,43 @@ export const useMessagingStore = create<MessagingState>()(
                     performedBy: data.sentBy,
                     afterSnapshot: { subject: data.subject, channel: data.channel, scope: data.scope },
                 });
+
+                // Fire in-app notification logs for recipients so they appear
+                // in the bell and Notifications page — regardless of which part
+                // of the UI triggered the announcement.
+                if (data.channel === "in_app" || data.channel === "email") {
+                    const addLog = useNotificationsStore.getState().addLog;
+                    const notifChannel = data.channel as "in_app" | "email";
+                    let recipientIds: string[] = [];
+
+                    if (data.scope === "task_assignees" && data.targetTaskId) {
+                        const task = useTasksStore.getState().tasks.find((t) => t.id === data.targetTaskId);
+                        recipientIds = task?.assignedTo ?? [];
+                    } else if (data.scope === "selected_employees" && data.targetEmployeeIds) {
+                        recipientIds = data.targetEmployeeIds;
+                    } else if (data.scope === "task_group" && data.targetGroupId) {
+                        const group = useTasksStore.getState().groups.find((g) => g.id === data.targetGroupId);
+                        recipientIds = group?.memberEmployeeIds ?? [];
+                    } else if (data.scope === "all_employees") {
+                        recipientIds = useEmployeesStore.getState().employees
+                            .filter((e) => e.status === "active")
+                            .map((e) => e.id);
+                    }
+
+                    recipientIds.forEach((empId) => {
+                        addLog({
+                            employeeId: empId,
+                            type: "task_assigned",
+                            channel: notifChannel,
+                            subject: data.subject,
+                            body: data.body,
+                            link: data.scope === "task_assignees" && data.targetTaskId
+                                ? `/tasks/${data.targetTaskId}`
+                                : "/notifications",
+                        });
+                    });
+                }
+
                 return id;
             },
             markAnnouncementRead: (id, employeeId) =>
