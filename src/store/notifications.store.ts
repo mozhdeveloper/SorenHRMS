@@ -117,18 +117,40 @@ export const useNotificationsStore = create<NotificationsState>()(
             rules: [...DEFAULT_RULES],
             providerConfig: { ...DEFAULT_PROVIDER },
 
-            addLog: (data) =>
+            addLog: (data) => {
+                const notificationId = `NOTIF-${nanoid(8)}`;
                 set((s) => ({
                     logs: [
                         {
                             ...data,
-                            id: `NOTIF-${nanoid(8)}`,
+                            id: notificationId,
                             sentAt: new Date().toISOString(),
                             status: "simulated" as const,
                         },
                         ...s.logs,
                     ].slice(0, 500), // keep max 500
-                })),
+                }));
+                // Fire push notification (fire-and-forget) so bell/push
+                // always mirrors the in-app notification log
+                try {
+                    let pushUrl = data.link || "/notifications";
+                    const emp = useEmployeesStore.getState().employees.find((e) => e.id === data.employeeId);
+                    if (emp?.role) {
+                        pushUrl = `/${emp.role}${data.link || "/notifications"}`;
+                    }
+                    fetch("/api/push/send", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            employeeId: data.employeeId,
+                            title: data.subject,
+                            body: data.body,
+                            url: pushUrl,
+                            tag: notificationId,
+                        }),
+                    }).catch(() => { /* push is best-effort */ });
+                } catch { /* best-effort */ }
+            },
 
             clearLogs: () => set({ logs: [] }),
 

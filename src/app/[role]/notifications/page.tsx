@@ -190,7 +190,7 @@ export default function NotificationsPage() {
                                                 )}
                                             </div>
                                             <h3 className="font-medium text-sm">{log.subject}</h3>
-                                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2 break-words">{log.body}</p>
+                                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2 break-all">{log.body}</p>
                                             <p className="text-xs text-muted-foreground/60 mt-2 flex items-center gap-1">
                                                 <Clock className="h-3 w-3" />
                                                 {formatRelativeTime(log.sentAt)}
@@ -319,7 +319,7 @@ export default function NotificationsPage() {
                                                 )}
                                             </div>
                                             <h3 className="font-medium text-sm">{log.subject}</h3>
-                                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2 break-words">{log.body}</p>
+                                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2 break-all">{log.body}</p>
                                             <p className="text-xs text-muted-foreground/60 mt-2 flex items-center gap-1">
                                                 <Clock className="h-3 w-3" />
                                                 {formatRelativeTime(log.sentAt)}

@@ -7,6 +7,7 @@ import { useEmployeesStore } from "@/store/employees.store";
 import { useAuthStore } from "@/store/auth.store";
 import { useRolesStore } from "@/store/roles.store";
 import { useMessagingStore } from "@/store/messaging.store";
+import { useNotificationsStore } from "@/store/notifications.store";
 import { tasksDb } from "@/services/db.service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -225,7 +226,20 @@ export default function TaskDetailPage() {
             targetTaskId: task.id,
             sentBy: myEmployeeId,
         });
-        toast.success("Announcement sent to task assignees");
+        // Also create in-app notification entries for each assignee
+        // so they appear in the bell dropdown and Notifications page
+        const addLog = useNotificationsStore.getState().addLog;
+        task.assignedTo.forEach((empId) => {
+            addLog({
+                employeeId: empId,
+                type: "task_assigned",
+                channel: notifyChannel === "in_app" ? "in_app" : notifyChannel === "email" ? "email" : "in_app",
+                subject: notifySubject.trim(),
+                body: notifyBody.trim(),
+                link: `/tasks/${task.id}`,
+            });
+        });
+        toast.success(`Notification sent to ${task.assignedTo.length} assignee${task.assignedTo.length !== 1 ? "s" : ""}`);
         setNotifySubject(""); setNotifyBody(""); setNotifyOpen(false);
     };
 
