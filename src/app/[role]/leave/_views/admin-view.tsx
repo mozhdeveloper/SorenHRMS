@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { dispatchNotification } from "@/lib/notifications";
 import { useAuditStore } from "@/store/audit.store";
 import type { LeaveType } from "@/types";
+import { EmployeeCombobox } from "@/components/ui/employee-combobox";
 
 /* ═══════════════════════════════════════════════════════════════
    ADMIN/HR/SUPERVISOR VIEW — Leave Management
@@ -194,14 +195,7 @@ export default function AdminLeaveView() {
                     <DialogContent>
                         <DialogHeader><DialogTitle>Submit Leave on Behalf of Employee</DialogTitle></DialogHeader>
                         <div className="space-y-4 pt-2">
-                            <Select value={formEmpId} onValueChange={setFormEmpId}>
-                                <SelectTrigger><SelectValue placeholder="Select Employee" /></SelectTrigger>
-                                <SelectContent>
-                                    {employees.filter((e) => e.status === "active" && e.id).map((e) => (
-                                        <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <EmployeeCombobox value={formEmpId} onValueChange={setFormEmpId} required placeholder="Select Employee" className="w-full" />
                             <Select value={formType} onValueChange={(v) => setFormType(v as LeaveType)}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>

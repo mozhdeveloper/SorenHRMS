@@ -1103,7 +1103,7 @@ export default function AdminEmployeesView() {
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                     <div><label className="text-sm font-medium">Work Type</label>
-                                        <Select value={editWorkType} onValueChange={(v) => setEditWorkType(v as WorkType)}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent position="popper" className="z-50"><SelectItem value="WFO">Work From Office</SelectItem><SelectItem value="WFH">Work From Home</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem><SelectItem value="ONSITE">Full Onsite</SelectItem></SelectContent></Select>
+                                        <Select value={editWorkType} onValueChange={(v) => setEditWorkType(v as WorkType)}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="WFO">Work From Office</SelectItem><SelectItem value="WFH">Work From Home</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem><SelectItem value="ONSITE">Full Onsite</SelectItem></SelectContent></Select>
                                     </div>
                                     <div><label className="text-sm font-medium">Monthly Salary (₱)</label><Input type="number" value={editSalary} onChange={(e) => setEditSalary(e.target.value)} className="mt-1" /></div>
                                     <div><label className="text-sm font-medium">Pay Frequency</label>
@@ -1300,19 +1300,19 @@ export default function AdminEmployeesView() {
                                 </div>
                                 <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as "all" | "active" | "inactive"); setPage(1); }}>
                                     <SelectTrigger className="w-full sm:w-[130px]"><SelectValue placeholder="Status" /></SelectTrigger>
-                                    <SelectContent position="popper" className="z-50"><SelectItem value="all">All Status</SelectItem><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem><SelectItem value="resigned">Resigned</SelectItem></SelectContent>
+                                    <SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem><SelectItem value="resigned">Resigned</SelectItem></SelectContent>
                                 </Select>
                                 <Select value={workTypeFilter} onValueChange={(v) => { setWorkTypeFilter(v as "all" | "WFH" | "WFO" | "HYBRID"); setPage(1); }}>
                                     <SelectTrigger className="w-full sm:w-[130px]"><SelectValue placeholder="Work Type" /></SelectTrigger>
-                                    <SelectContent position="popper" className="z-50"><SelectItem value="all">All Types</SelectItem><SelectItem value="WFH">WFH</SelectItem><SelectItem value="WFO">WFO</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem></SelectContent>
+                                    <SelectContent><SelectItem value="all">All Types</SelectItem><SelectItem value="WFH">WFH</SelectItem><SelectItem value="WFO">WFO</SelectItem><SelectItem value="HYBRID">Hybrid</SelectItem></SelectContent>
                                 </Select>
                                 <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setPage(1); }}>
                                     <SelectTrigger className="w-full sm:w-[130px]"><SelectValue placeholder="Role" /></SelectTrigger>
-                                    <SelectContent position="popper" className="z-50"><SelectItem value="all">All Roles</SelectItem><SelectItem value="admin">Admin</SelectItem><SelectItem value="hr">HR</SelectItem><SelectItem value="finance">Finance</SelectItem><SelectItem value="payroll_admin">Payroll Admin</SelectItem><SelectItem value="supervisor">Supervisor</SelectItem><SelectItem value="employee">Employee</SelectItem><SelectItem value="auditor">Auditor</SelectItem></SelectContent>
+                                    <SelectContent><SelectItem value="all">All Roles</SelectItem><SelectItem value="admin">Admin</SelectItem><SelectItem value="hr">HR</SelectItem><SelectItem value="finance">Finance</SelectItem><SelectItem value="payroll_admin">Payroll Admin</SelectItem><SelectItem value="supervisor">Supervisor</SelectItem><SelectItem value="employee">Employee</SelectItem><SelectItem value="auditor">Auditor</SelectItem></SelectContent>
                                 </Select>
                                 <Select value={departmentFilter} onValueChange={(v) => { setDepartmentFilter(v); setPage(1); }}>
                                     <SelectTrigger className="w-full sm:w-[160px]"><SelectValue placeholder="All Departments" /></SelectTrigger>
-                                    <SelectContent position="popper" className="z-50">
+                                    <SelectContent>
                                         <SelectItem value="all">All Departments</SelectItem>
                                         {departments.filter((d) => d.isActive).map((d) => (
                                             <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>

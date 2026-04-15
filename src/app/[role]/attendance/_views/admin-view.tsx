@@ -48,6 +48,8 @@ import { FaceRecognitionSimulator } from "@/components/attendance/face-recogniti
 import { SelfieCapture } from "@/components/attendance/selfie-capture";
 import { LocationTracker } from "@/components/attendance/location-tracker";
 import { BreakTimer } from "@/components/attendance/break-timer";
+import { EmployeeCombobox } from "@/components/ui/employee-combobox";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { SiteSurveyGallery } from "@/components/attendance/site-survey-gallery";
 import { LocationTrail } from "@/components/attendance/location-trail";
 import { AttendanceHeatmap } from "@/components/attendance/attendance-heatmap";
@@ -651,14 +653,8 @@ export default function AdminView({ mode = "admin" }: AdminViewProps) {
                     <Card className="border border-border/40 shadow-sm">
                         <CardContent className="p-3">
                             <div className="flex flex-wrap items-center gap-2">
-                                <Input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="w-full sm:w-[170px] h-8 text-xs" />
-                                <Select value={empFilter} onValueChange={setEmpFilter}>
-                                    <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs"><SelectValue placeholder="All Employees" /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">All {mode === "supervisor" ? "Team Members" : "Employees"}</SelectItem>
-                                        {visibleEmployees.filter((e) => e.id).map((e) => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
+                                <Input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="w-full sm:w-[170px] h-9" />
+                                <EmployeeCombobox value={empFilter} onValueChange={setEmpFilter} allLabel={mode === "supervisor" ? "All Team Members" : "All Employees"} className="w-full sm:w-[220px]" />
                             </div>
                         </CardContent>
                     </Card>
@@ -746,39 +742,37 @@ export default function AdminView({ mode = "admin" }: AdminViewProps) {
                     <Card className="border border-border/40 shadow-sm">
                         <CardContent className="p-3">
                             <div className="flex flex-wrap items-center gap-2">
-                                <Select value={eventTypeFilter} onValueChange={setEventTypeFilter}>
-                                    <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs"><SelectValue placeholder="All Event Types" /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">All Event Types</SelectItem>
-                                        <SelectItem value="IN">Check In</SelectItem>
-                                        <SelectItem value="OUT">Check Out</SelectItem>
-                                        <SelectItem value="BREAK_START">Break Start</SelectItem>
-                                        <SelectItem value="BREAK_END">Break End</SelectItem>
-                                        <SelectItem value="OVERRIDE">Override</SelectItem>
-                                        <SelectItem value="BULK_OVERRIDE">Bulk Override</SelectItem>
-                                        <SelectItem value="MARK_ABSENT">Mark Absent</SelectItem>
-                                        <SelectItem value="OT_APPROVED">OT Approved</SelectItem>
-                                        <SelectItem value="OT_REJECTED">OT Rejected</SelectItem>
-                                        <SelectItem value="OT_SUBMITTED">OT Submitted</SelectItem>
-                                        <SelectItem value="EXCEPTION_RESOLVED">Exception Resolved</SelectItem>
-                                        <SelectItem value="EXCEPTION_SCANNED">Exception Scanned</SelectItem>
-                                        <SelectItem value="HOLIDAY_ADDED">Holiday Added</SelectItem>
-                                        <SelectItem value="HOLIDAY_UPDATED">Holiday Updated</SelectItem>
-                                        <SelectItem value="HOLIDAY_DELETED">Holiday Deleted</SelectItem>
-                                        <SelectItem value="CSV_IMPORTED">CSV Imported</SelectItem>
-                                        <SelectItem value="CSV_EXPORTED">CSV Exported</SelectItem>
-                                        <SelectItem value="PENALTY_APPLIED">Penalty Applied</SelectItem>
-                                        <SelectItem value="SHIFT_ASSIGNED">Shift Assigned</SelectItem>
-                                        <SelectItem value="DATA_RESET">Data Reset</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                <Select value={eventEmpFilter} onValueChange={setEventEmpFilter}>
-                                    <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs"><SelectValue placeholder="All Employees" /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">All Employees</SelectItem>
-                                        {visibleEmployees.filter((e) => e.id).map((e) => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
+                                <SearchableSelect
+                                    value={eventTypeFilter}
+                                    onValueChange={setEventTypeFilter}
+                                    options={[
+                                        { value: "all", label: "All Event Types" },
+                                        { value: "IN", label: "Check In" },
+                                        { value: "OUT", label: "Check Out" },
+                                        { value: "BREAK_START", label: "Break Start" },
+                                        { value: "BREAK_END", label: "Break End" },
+                                        { value: "OVERRIDE", label: "Override" },
+                                        { value: "BULK_OVERRIDE", label: "Bulk Override" },
+                                        { value: "MARK_ABSENT", label: "Mark Absent" },
+                                        { value: "OT_APPROVED", label: "OT Approved" },
+                                        { value: "OT_REJECTED", label: "OT Rejected" },
+                                        { value: "OT_SUBMITTED", label: "OT Submitted" },
+                                        { value: "EXCEPTION_RESOLVED", label: "Exception Resolved" },
+                                        { value: "EXCEPTION_SCANNED", label: "Exception Scanned" },
+                                        { value: "HOLIDAY_ADDED", label: "Holiday Added" },
+                                        { value: "HOLIDAY_UPDATED", label: "Holiday Updated" },
+                                        { value: "HOLIDAY_DELETED", label: "Holiday Deleted" },
+                                        { value: "CSV_IMPORTED", label: "CSV Imported" },
+                                        { value: "CSV_EXPORTED", label: "CSV Exported" },
+                                        { value: "PENALTY_APPLIED", label: "Penalty Applied" },
+                                        { value: "SHIFT_ASSIGNED", label: "Shift Assigned" },
+                                        { value: "DATA_RESET", label: "Data Reset" },
+                                    ]}
+                                    placeholder="All Event Types"
+                                    searchPlaceholder="Search events..."
+                                    className="w-full sm:w-[200px]"
+                                />
+                                <EmployeeCombobox value={eventEmpFilter} onValueChange={setEventEmpFilter} className="w-full sm:w-[220px]" />
                                 <span className="text-xs text-muted-foreground ml-auto">{filteredEvents.length} event{filteredEvents.length !== 1 ? "s" : ""}</span>
                             </div>
                         </CardContent>

@@ -13,6 +13,7 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Calculator, FileText } from "lucide-react";
+import { EmployeeCombobox } from "@/components/ui/employee-combobox";
 import { toast } from "sonner";
 
 interface ComputeFinalPayDialogProps {
@@ -110,18 +111,9 @@ export function ComputeFinalPayDialog({
                 <div className="space-y-4 pt-2">
                     <div>
                         <label className="text-xs font-medium">Resigned Employee</label>
-                        <Select value={employeeId} onValueChange={setEmployeeId}>
-                            <SelectTrigger className="mt-1"><SelectValue placeholder="Select resigned employee" /></SelectTrigger>
-                            <SelectContent>
-                                {resignedEmployees.length === 0 ? (
-                                    <SelectItem value="none" disabled>No resigned employees pending final pay</SelectItem>
-                                ) : resignedEmployees.filter((e) => e.id).map((e) => (
-                                    <SelectItem key={e.id} value={e.id}>
-                                        {e.name} — Resigned {e.resignedAt ? new Date(e.resignedAt).toLocaleDateString() : "N/A"} ({formatCurrency(e.salary)}/mo)
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <div className="mt-1">
+                            <EmployeeCombobox value={employeeId} onValueChange={setEmployeeId} required placeholder="Select resigned employee" statusFilter={["resigned"]} className="w-full" />
+                        </div>
                     </div>
 
                     {selectedEmp && (
