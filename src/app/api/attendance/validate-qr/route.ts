@@ -108,9 +108,41 @@ export async function POST(request: NextRequest) {
         const timeStr = `${String(manilaTime.getHours()).padStart(2, "0")}:${String(manilaTime.getMinutes()).padStart(2, "0")}`;
         const eventId = `EVT-${nanoid(8)}`;
 
+        // ── Duplicate check: prevent double check-in/check-out ──
         let eventWritten = false;
         try {
             const supabase = await createAdminSupabaseClient();
+
+            const { data: existingLog } = await supabase
+                .from("attendance_logs")
+                .select("check_in, check_out")
+                .eq("employee_id", result.employeeId)
+                .eq("date", today)
+                .single();
+
+            if (eventType === "IN" && existingLog?.check_in) {
+                return NextResponse.json({
+                    valid: false,
+                    employeeId: result.employeeId,
+                    message: `Already checked in today at ${existingLog.check_in}`,
+                    duplicate: true,
+                });
+            }
+            if (eventType === "OUT" && !existingLog?.check_in) {
+                return NextResponse.json({
+                    valid: false,
+                    employeeId: result.employeeId,
+                    message: "Cannot check out without checking in first",
+                });
+            }
+            if (eventType === "OUT" && existingLog?.check_out) {
+                return NextResponse.json({
+                    valid: false,
+                    employeeId: result.employeeId,
+                    message: `Already checked out today at ${existingLog.check_out}`,
+                    duplicate: true,
+                });
+            }
 
             // 1. Append to event ledger (immutable)
             const { error: evtError } = await supabase.from("attendance_events").insert({

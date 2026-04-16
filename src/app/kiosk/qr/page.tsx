@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, memo } from "react";
+import { useState, useEffect, useCallback, useRef, memo, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useEmployeesStore } from "@/store/employees.store";
+import { useAttendanceStore } from "@/store/attendance.store";
 import { useAppearanceStore } from "@/store/appearance.store";
 import { useKioskStore } from "@/store/kiosk.store";
 import { toast } from "sonner";
@@ -63,6 +64,7 @@ export default function QRKioskPage() {
     const router = useRouter();
     const ks = useKioskStore((s) => s.settings);
     const employees = useEmployeesStore((s) => s.employees);
+    const attendanceLogs = useAttendanceStore((s) => s.logs);
     const companyName = useAppearanceStore((s) => s.companyName);
     const logoUrl = useAppearanceStore((s) => s.logoUrl);
 
@@ -109,6 +111,31 @@ export default function QRKioskPage() {
             } catch { /* ignore parse errors */ }
         }
     }, []);
+
+    // Derive today's activity from persisted attendance logs (survives refresh)
+    const todayActivity = useMemo(() => {
+        const today = new Date().toISOString().split("T")[0];
+        const todayLogs = attendanceLogs.filter((l) => l.date === today && (l.checkIn || l.checkOut));
+        const storeEntries: Array<{ name: string; type: "in" | "out"; time: string }> = [];
+        for (const log of todayLogs) {
+            const emp = employees.find((e) => e.id === log.employeeId);
+            const name = emp?.name || log.employeeId;
+            if (log.checkOut) {
+                storeEntries.push({ name, type: "out", time: log.checkOut });
+            }
+            if (log.checkIn) {
+                storeEntries.push({ name, type: "in", time: log.checkIn });
+            }
+        }
+        // Merge session entries not already covered by store
+        const storeKeys = new Set(storeEntries.map((e) => `${e.name}|${e.type}|${e.time}`));
+        for (const entry of kioskLog) {
+            const key = `${entry.name}|${entry.type}|${entry.time}`;
+            if (!storeKeys.has(key)) storeEntries.push(entry);
+        }
+        storeEntries.sort((a, b) => b.time.localeCompare(a.time));
+        return storeEntries;
+    }, [attendanceLogs, employees, kioskLog]);
 
     // Verify PIN access — redirect if not verified; guard browser back
     useEffect(() => {
@@ -203,17 +230,24 @@ export default function QRKioskPage() {
         try { sessionStorage.removeItem("kiosk-qr-activity-log"); } catch { /* ignore */ }
     }, []);
 
+    const { checkIn: storeCheckIn, checkOut: storeCheckOut } = useAttendanceStore();
+
     const clockEmployee = useCallback((empId: string, empName: string) => {
         // checkWorkDay for analytics (local only)
         if (modeRef.current === "in") checkWorkDay(empId);
 
-        // NOTE: DB write already happened in /api/attendance/validate-qr
-        // We no longer call store checkIn/checkOut here to avoid double-writes
+        // DB write already happened in /api/attendance/validate-qr.
+        // Sync local Zustand store so todayActivity and duplicate guards stay current.
+        if (modeRef.current === "in") {
+            storeCheckIn(empId);
+        } else {
+            storeCheckOut(empId);
+        }
 
         // Activity log (local kiosk UI only)
         addToKioskLog(empName);
         triggerFeedback(modeRef.current === "in" ? "success-in" : "success-out", empName);
-    }, [checkWorkDay, addToKioskLog, triggerFeedback]);
+    }, [checkWorkDay, addToKioskLog, triggerFeedback, storeCheckIn, storeCheckOut]);
 
     const processQrPayload = useCallback(async (payload: string) => {
         // Use ref-based lock (synchronous) to prevent duplicate scans
@@ -715,9 +749,9 @@ export default function QRKioskPage() {
                             className="ml-auto tabular-nums text-white/30"
                             style={{ fontSize: "clamp(0.55rem, 0.9vw, 0.65rem)" }}
                         >
-                            {kioskLog.length} {kioskLog.length === 1 ? "entry" : "entries"}
+                            {todayActivity.length} {todayActivity.length === 1 ? "entry" : "entries"}
                         </span>
-                        {kioskLog.length > 0 && (
+                        {todayActivity.length > 0 && (
                             <button
                                 onClick={clearKioskLog}
                                 className="p-1 rounded hover:bg-white/10 transition-colors text-white/30"
@@ -731,7 +765,7 @@ export default function QRKioskPage() {
                         className="flex-1 overflow-y-auto space-y-1.5"
                         style={{ padding: "clamp(0.5rem, 1.5vh, 0.75rem)" }}
                     >
-                        {kioskLog.length === 0 ? (
+                        {todayActivity.length === 0 ? (
                             <div 
                                 className="flex flex-col items-center justify-center gap-2"
                                 style={{ padding: "clamp(1.5rem, 5vh, 3rem) 0" }}
@@ -741,7 +775,7 @@ export default function QRKioskPage() {
                                 <p className="text-white/10" style={{ fontSize: "clamp(0.55rem, 0.9vw, 0.65rem)" }}>Scan a QR code to check in or out</p>
                             </div>
                         ) : (
-                            kioskLog.map((entry, i) => (
+                            todayActivity.map((entry, i) => (
                                 <div 
                                     key={i} 
                                     className="flex items-center gap-3 rounded-xl transition-colors"

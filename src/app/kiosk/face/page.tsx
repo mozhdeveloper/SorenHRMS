@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAttendanceStore } from "@/store/attendance.store";
 import { useEmployeesStore } from "@/store/employees.store";
@@ -32,7 +32,7 @@ type ScanState = "loading" | "idle" | "scanning" | "verifying" | "verified" | "f
 export default function FaceKioskPage() {
     const router = useRouter();
     const ks = useKioskStore((s) => s.settings);
-    const { appendEvent, checkIn, checkOut, recordEvidence } = useAttendanceStore();
+    const { appendEvent, checkIn, checkOut, recordEvidence, logs: attendanceLogs } = useAttendanceStore();
     const employees = useEmployeesStore((s) => s.employees);
     const companyName = useAppearanceStore((s) => s.companyName);
     const logoUrl = useAppearanceStore((s) => s.logoUrl);
@@ -72,6 +72,7 @@ export default function FaceKioskPage() {
     const [trackingBox, setTrackingBox] = useState<{ x: number; y: number; w: number; h: number; score: number } | null>(null);
     const [trackingStatus, setTrackingStatus] = useState<"no-face" | "detecting" | "hold-steady" | "scanning" | "matched">("no-face");
     const [autoConfirmCountdown, setAutoConfirmCountdown] = useState<number | null>(null);
+    const [guidanceHint, setGuidanceHint] = useState<string>("Position your face in the oval");
 
     // Clear kiosk log at midnight
     useEffect(() => {
@@ -88,6 +89,33 @@ export default function FaceKioskPage() {
             } catch { /* ignore parse errors */ }
         }
     }, []);
+
+    // Derive today's activity from persisted attendance logs (survives refresh)
+    // Merge with session kiosk log so new entries appear immediately
+    const todayActivity = useMemo(() => {
+        const today = new Date().toISOString().split("T")[0];
+        const todayLogs = attendanceLogs.filter((l) => l.date === today && (l.checkIn || l.checkOut));
+        const storeEntries: Array<{ name: string; type: "in" | "out"; time: string }> = [];
+        for (const log of todayLogs) {
+            const emp = employees.find((e) => e.id === log.employeeId);
+            const name = emp?.name || log.employeeId;
+            if (log.checkOut) {
+                storeEntries.push({ name, type: "out", time: log.checkOut });
+            }
+            if (log.checkIn) {
+                storeEntries.push({ name, type: "in", time: log.checkIn });
+            }
+        }
+        // Merge session entries not already covered by store (for the same session before store syncs)
+        const storeKeys = new Set(storeEntries.map((e) => `${e.name}|${e.type}|${e.time}`));
+        for (const entry of kioskLog) {
+            const key = `${entry.name}|${entry.type}|${entry.time}`;
+            if (!storeKeys.has(key)) storeEntries.push(entry);
+        }
+        // Sort by time descending (most recent first)
+        storeEntries.sort((a, b) => b.time.localeCompare(a.time));
+        return storeEntries;
+    }, [attendanceLogs, employees, kioskLog]);
 
     // PIN verification — redirect if not verified; also guard against browser back
     useEffect(() => {
@@ -166,8 +194,8 @@ export default function FaceKioskPage() {
         if (feedback !== "idle") return;
 
         let cancelled = false;
-        const FACE_HOLD_MS = 1200; // hold face steady for 1.2s before triggering scan
-        const SCAN_COOLDOWN_MS = 4000; // cooldown between auto-scans
+        const FACE_HOLD_MS = 1500; // hold face steady for 1.5s before triggering scan
+        const SCAN_COOLDOWN_MS = 5000; // cooldown between auto-scans
 
         async function trackLoop() {
             if (cancelled) return;
@@ -193,6 +221,8 @@ export default function FaceKioskPage() {
                     // Map box to percentage coordinates for overlay
                     const vw = video.videoWidth;
                     const vh = video.videoHeight;
+                    const faceRatio = result.box.width / vw;
+
                     setTrackingBox({
                         x: ((vw - result.box.x - result.box.width) / vw) * 100, // mirror
                         y: (result.box.y / vh) * 100,
@@ -201,28 +231,54 @@ export default function FaceKioskPage() {
                         score: result.score,
                     });
 
-                    const now = Date.now();
-                    if (!faceSeenSinceRef.current) {
-                        faceSeenSinceRef.current = now;
+                    // Check face positioning before allowing auto-scan
+                    const isFaceTooSmall = faceRatio < 0.15;
+                    const isFaceTooLarge = faceRatio > 0.55;
+                    const isFaceFrontFacing = Math.abs(result.yaw) < 0.25; // must look straight
+                    const isFaceWellPositioned = !isFaceTooSmall && !isFaceTooLarge && isFaceFrontFacing && result.score >= 0.75;
+
+                    if (isFaceTooSmall) {
                         setTrackingStatus("detecting");
-                    }
-
-                    const heldFor = now - faceSeenSinceRef.current;
-                    if (heldFor > 400 && heldFor < FACE_HOLD_MS) {
-                        setTrackingStatus("hold-steady");
-                    }
-
-                    // Auto-trigger scan when face held steady long enough
-                    if (heldFor >= FACE_HOLD_MS && now > scanCooldownRef.current) {
-                        setTrackingStatus("scanning");
+                        setGuidanceHint("Move closer to the camera");
                         faceSeenSinceRef.current = null;
-                        scanCooldownRef.current = now + SCAN_COOLDOWN_MS;
-                        handleScanRef.current();
-                        return; // stop loop, handleScan manages state
+                    } else if (isFaceTooLarge) {
+                        setTrackingStatus("detecting");
+                        setGuidanceHint("Move back a little");
+                        faceSeenSinceRef.current = null;
+                    } else if (!isFaceFrontFacing) {
+                        setTrackingStatus("detecting");
+                        setGuidanceHint("Look straight at the camera");
+                        faceSeenSinceRef.current = null;
+                    } else if (result.score < 0.75) {
+                        setTrackingStatus("detecting");
+                        setGuidanceHint("Improve lighting for better detection");
+                        faceSeenSinceRef.current = null;
+                    } else {
+                        setGuidanceHint("Hold steady — recognizing...");
+                        const now = Date.now();
+                        if (!faceSeenSinceRef.current) {
+                            faceSeenSinceRef.current = now;
+                            setTrackingStatus("detecting");
+                        }
+
+                        const heldFor = now - faceSeenSinceRef.current;
+                        if (isFaceWellPositioned && heldFor > 400 && heldFor < FACE_HOLD_MS) {
+                            setTrackingStatus("hold-steady");
+                        }
+
+                        // Auto-trigger scan when face held steady long enough AND well-positioned
+                        if (isFaceWellPositioned && heldFor >= FACE_HOLD_MS && now > scanCooldownRef.current) {
+                            setTrackingStatus("scanning");
+                            faceSeenSinceRef.current = null;
+                            scanCooldownRef.current = now + SCAN_COOLDOWN_MS;
+                            handleScanRef.current();
+                            return; // stop loop, handleScan manages state
+                        }
                     }
                 } else {
                     setTrackingBox(null);
                     setTrackingStatus("no-face");
+                    setGuidanceHint("Position your face in the oval");
                     faceSeenSinceRef.current = null;
                 }
             } catch {
@@ -359,6 +415,7 @@ export default function FaceKioskPage() {
                 setScanState("verified");
                 setTrackingStatus("matched");
                 setTrackingBox(null);
+                setGuidanceHint("");
                 console.log(`[kiosk-face] ✅ MATCH: ${name} (distance=${matchData.distance?.toFixed(4)})`);
                 toast.success(`Matched: ${name} (distance: ${matchData.distance?.toFixed(3)})`);
 
@@ -378,8 +435,13 @@ export default function FaceKioskPage() {
                 }, 1000);
                 autoConfirmTimerRef.current = countdownInterval;
             } else {
-                console.log(`[kiosk-face] ❌ NO MATCH: face not recognized`);
-                toast.error("Face not recognized. Please try again or re-enroll.");
+                const serverError = matchData.error;
+                const errorMsg = serverError
+                    ? `Recognition failed: ${serverError}`
+                    : "Face not recognized. Please ensure you have enrolled your face and try again.";
+                console.log(`[kiosk-face] ❌ NO MATCH: ${serverError || "face not recognized"}`);
+                toast.error(errorMsg);
+                setGuidanceHint("Try again — look straight at the camera");
                 setScanState("idle");
             }
         } catch (err) {
@@ -419,6 +481,34 @@ export default function FaceKioskPage() {
             setScanState("idle");
             setMatchedName("");
             setMatchDistance(null);
+            return;
+        }
+
+        // ── Duplicate check-in / check-out guard ──
+        const today = new Date().toISOString().split("T")[0];
+        const todayLog = attendanceLogs.find((l) => l.employeeId === empId && l.date === today);
+        if (mode === "in" && todayLog?.checkIn) {
+            toast.error(`${matchedName} has already checked in today at ${todayLog.checkIn}.`, { duration: 4000 });
+            setScanState("idle");
+            setMatchedName("");
+            setMatchDistance(null);
+            setTrackingStatus("no-face");
+            return;
+        }
+        if (mode === "out" && todayLog?.checkOut) {
+            toast.error(`${matchedName} has already checked out today at ${todayLog.checkOut}.`, { duration: 4000 });
+            setScanState("idle");
+            setMatchedName("");
+            setMatchDistance(null);
+            setTrackingStatus("no-face");
+            return;
+        }
+        if (mode === "out" && !todayLog?.checkIn) {
+            toast.error(`${matchedName} hasn't checked in yet today.`, { duration: 4000 });
+            setScanState("idle");
+            setMatchedName("");
+            setMatchDistance(null);
+            setTrackingStatus("no-face");
             return;
         }
 
@@ -469,7 +559,7 @@ export default function FaceKioskPage() {
             setMatchDistance(null);
             setScanState("idle");
         }, ks.feedbackDuration);
-    }, [matchedName, mode, employees, getProjectForEmployee, ks, checkIn, checkOut, appendEvent, recordEvidence, deviceId, checkWorkDay]);
+    }, [matchedName, mode, employees, getProjectForEmployee, ks, checkIn, checkOut, appendEvent, recordEvidence, deviceId, checkWorkDay, attendanceLogs]);
 
     // Ref so auto-confirm timer can call the latest handleConfirm
     const handleConfirmRef = useRef(handleConfirm);
@@ -826,8 +916,26 @@ export default function FaceKioskPage() {
                                         <Loader2 className="h-8 w-8 text-white animate-spin" />
                                         <p className="text-white/70 text-xs mt-2">
                                             {scanState === "loading" ? "Loading models..." :
-                                             scanState === "scanning" ? "Detecting face..." : "Verifying identity..."}
+                                             scanState === "scanning" ? "Capturing face..." : "Recognizing..."}
                                         </p>
+                                    </div>
+                                )}
+                                {/* Smart guidance hint overlay */}
+                                {scanState === "idle" && guidanceHint && (
+                                    <div className="absolute bottom-3 left-0 right-0 flex justify-center pointer-events-none">
+                                        <div className={cn(
+                                            "backdrop-blur-sm rounded-full px-3 py-1.5 max-w-[90%]",
+                                            trackingStatus === "hold-steady" ? "bg-blue-900/70" :
+                                            trackingStatus === "detecting" ? "bg-amber-900/70" :
+                                            "bg-black/60"
+                                        )}>
+                                            <span className={cn(
+                                                "text-[11px] font-medium",
+                                                trackingStatus === "hold-steady" ? "text-blue-300" :
+                                                trackingStatus === "detecting" ? "text-amber-300" :
+                                                "text-white/70"
+                                            )}>{guidanceHint}</span>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -846,7 +954,7 @@ export default function FaceKioskPage() {
                                     </div>
                                     {matchDistance !== null && (
                                         <p className="text-white/20 text-[10px] text-center">
-                                            Match distance: {matchDistance.toFixed(4)} (threshold: 0.38)
+                                            Match distance: {matchDistance.toFixed(4)} (threshold: 0.42)
                                         </p>
                                     )}
                                     <button
@@ -948,14 +1056,14 @@ export default function FaceKioskPage() {
                             className="ml-auto tabular-nums text-white/30"
                             style={{ fontSize: "clamp(0.55rem, 0.9vw, 0.65rem)" }}
                         >
-                            {kioskLog.length} {kioskLog.length === 1 ? "entry" : "entries"}
+                            {todayActivity.length} {todayActivity.length === 1 ? "entry" : "entries"}
                         </span>
                     </div>
                     <div 
                         className="flex-1 overflow-y-auto space-y-1.5"
                         style={{ padding: "clamp(0.5rem, 1.5vh, 0.75rem)" }}
                     >
-                        {kioskLog.length === 0 ? (
+                        {todayActivity.length === 0 ? (
                             <div 
                                 className="flex flex-col items-center justify-center gap-2"
                                 style={{ padding: "clamp(1.5rem, 5vh, 3rem) 0" }}
@@ -965,7 +1073,7 @@ export default function FaceKioskPage() {
                                 <p className="text-white/10" style={{ fontSize: "clamp(0.55rem, 0.9vw, 0.65rem)" }}>Scan a face to check in or out</p>
                             </div>
                         ) : (
-                            kioskLog.map((entry, i) => (
+                            todayActivity.map((entry, i) => (
                                 <div 
                                     key={i} 
                                     className="flex items-center gap-3 rounded-xl transition-colors"

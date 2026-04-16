@@ -22,7 +22,7 @@ import dynamic from "next/dynamic";
 import { getInitials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { sendNotification } from "@/lib/notifications";
-import { FolderKanban, Plus, MapPin, UserPlus, Trash2, ScanFace, QrCode, UserCheck, Pencil } from "lucide-react";
+import { FolderKanban, Plus, MapPin, UserPlus, Trash2, ScanFace, QrCode, UserCheck, Pencil, Search } from "lucide-react";
 import type { Project, VerificationMethod } from "@/types";
 
 const MapSelector = dynamic(
@@ -47,6 +47,7 @@ export default function AdminProjectsView() {
     const [assignOpen, setAssignOpen] = useState(false);
     const [assignProjectId, setAssignProjectId] = useState<string | null>(null);
     const [selectedEmpIds, setSelectedEmpIds] = useState<string[]>([]);
+    const [assignSearch, setAssignSearch] = useState("");
 
     // ── Edit project state ──────────────────────────────────────
     const [editOpen, setEditOpen] = useState(false);
@@ -136,6 +137,7 @@ export default function AdminProjectsView() {
         const project = projects.find((p) => p.id === projectId);
         setAssignProjectId(projectId);
         setSelectedEmpIds(project?.assignedEmployeeIds || []);
+        setAssignSearch("");
         setAssignOpen(true);
     };
 
@@ -324,8 +326,22 @@ export default function AdminProjectsView() {
                 <DialogContent className="max-w-lg">
                     <DialogHeader><DialogTitle>Assign Employees to Project</DialogTitle></DialogHeader>
                     <p className="text-xs text-muted-foreground -mt-1">Each employee can only be assigned to one project at a time.</p>
-                    <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1 pt-1">
-                        {employees.filter((e) => e.status === "active").map((emp) => {
+                    <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                        <Input
+                            placeholder="Search employees..."
+                            value={assignSearch}
+                            onChange={(e) => setAssignSearch(e.target.value)}
+                            className="pl-8 h-8 text-sm"
+                        />
+                    </div>
+                    <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                        {employees.filter((e) => e.status === "active" && (
+                            assignSearch.trim() === "" ||
+                            e.name.toLowerCase().includes(assignSearch.toLowerCase()) ||
+                            e.department?.toLowerCase().includes(assignSearch.toLowerCase()) ||
+                            e.role?.toLowerCase().includes(assignSearch.toLowerCase())
+                        )).map((emp) => {
                             const currentProj = getEmpCurrentProject(emp.id);
                             const isSelected = selectedEmpIds.includes(emp.id);
                             return (
@@ -344,6 +360,14 @@ export default function AdminProjectsView() {
                                 </div>
                             );
                         })}
+                        {employees.filter((e) => e.status === "active" && (
+                            assignSearch.trim() === "" ||
+                            e.name.toLowerCase().includes(assignSearch.toLowerCase()) ||
+                            e.department?.toLowerCase().includes(assignSearch.toLowerCase()) ||
+                            e.role?.toLowerCase().includes(assignSearch.toLowerCase())
+                        )).length === 0 && (
+                            <p className="text-sm text-muted-foreground text-center py-6">No employees match &quot;{assignSearch}&quot;</p>
+                        )}
                     </div>
                     <Button onClick={handleAssignSave} className="w-full mt-2">Save Assignments ({selectedEmpIds.length} selected)</Button>
                 </DialogContent>

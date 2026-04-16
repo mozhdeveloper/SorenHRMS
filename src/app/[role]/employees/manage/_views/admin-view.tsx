@@ -1286,6 +1286,19 @@ export default function AdminEmployeesView() {
                                 </div>
 
                                 <Button onClick={handleSaveEdit} className="w-full">Save Changes</Button>
+                                {editingEmp?.profileId && (
+                                    <Button variant="outline" className="w-full" onClick={() => {
+                                        const acc = accounts.find((a) => a.id === editingEmp.profileId);
+                                        if (acc) {
+                                            setResetPwUserId(acc.id);
+                                            setResetPwValue("");
+                                        } else {
+                                            toast.error("No linked user account found for this employee.");
+                                        }
+                                    }}>
+                                        <KeyRound className="w-4 h-4 mr-1.5" /> Reset Password
+                                    </Button>
+                                )}
                             </div>
                         </DialogContent>
                     </Dialog>
@@ -1563,6 +1576,13 @@ export default function AdminEmployeesView() {
                                                         <div className="flex items-center gap-1">
                                                             <Link href={rh(`/employees/${emp.id}`)}><Button variant="ghost" size="icon" className="h-7 w-7"><Eye className="h-3.5 w-3.5" /></Button></Link>
                                                             <Button variant="ghost" size="icon" className="h-7 w-7" disabled={!canManage} onClick={() => handleOpenEdit(emp)} title="Edit"><Pencil className="h-3.5 w-3.5" /></Button>
+                                                            {canManage && emp.profileId && (
+                                                                <Button variant="ghost" size="icon" className="h-7 w-7" title="Reset password" onClick={() => {
+                                                                    const acc = accounts.find((a) => a.id === emp.profileId);
+                                                                    if (acc) { setResetPwUserId(acc.id); setResetPwValue(""); }
+                                                                    else toast.error("No linked account found");
+                                                                }}><KeyRound className="h-3.5 w-3.5" /></Button>
+                                                            )}
                                                             <Button variant="ghost" size="sm" className="h-7 text-[10px]" disabled={!canManage} onClick={() => { if (!canManage) return; toggleStatus(emp.id); useAuditStore.getState().log({ entityType: "employee", entityId: emp.id, action: emp.status === "active" ? "employee_resigned" : "adjustment_applied", performedBy: currentUser.id, reason: emp.status === "active" ? "Deactivated" : "Activated" }); toast.success(`${emp.name} ${emp.status === "active" ? "deactivated" : "activated"}`); }}>
                                                                 {emp.status === "active" ? "Deactivate" : emp.status === "inactive" ? "Activate" : emp.status}
                                                             </Button>

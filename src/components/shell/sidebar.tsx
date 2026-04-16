@@ -14,6 +14,7 @@ import { usePageBuilderStore } from "@/store/page-builder.store";
 import { useAppearanceStore } from "@/store/appearance.store";
 import { useMessagingStore } from "@/store/messaging.store";
 import { useNotificationsStore } from "@/store/notifications.store";
+import { useProjectsStore } from "@/store/projects.store";
 import { NAV_ITEMS } from "@/lib/constants";
 import {
     LayoutDashboard,
@@ -131,12 +132,25 @@ function SidebarComponent() {
     }, [employees, currentUserId, currentUserEmail, currentUserName]);
     const totalUnreadNotifications = currentEmployeeId ? getUnreadCountForEmployee(currentEmployeeId) : 0;
 
+    // Check if this employee is assigned to a face-enabled project
+    const getProjectForEmployee = useProjectsStore((s) => s.getProjectForEmployee);
+    const hasFaceProject = useMemo(() => {
+        if (!currentEmployeeId) return false;
+        const project = getProjectForEmployee(currentEmployeeId);
+        // Show face enrollment only if the employee's project uses face verification
+        return !!project && project.verificationMethod === "face_only";
+    }, [currentEmployeeId, getProjectForEmployee]);
+
     // Permission-based filtering + module flags + nav overrides
     const filtered = useMemo(() => {
         const systemItems = NAV_ITEMS
             .filter((item) => {
                 // Module flag check
                 if (item.moduleFlag && !modules[item.moduleFlag as keyof typeof modules]) {
+                    return false;
+                }
+                // Face enrollment: only show for employees on face-enabled projects
+                if (item.href === "/face-enrollment" && !hasFaceProject) {
                     return false;
                 }
                 // Permission check — also enforce roles list when defined
@@ -173,7 +187,7 @@ function SidebarComponent() {
         }));
 
         return { systemItems, customNavItems };
-    }, [role, hasPermission, customPages, modules, navOverrides]);
+    }, [role, hasPermission, customPages, modules, navOverrides, hasFaceProject]);
 
     // Build role-prefixed paths
     const rolePrefix = `/${role}`;
