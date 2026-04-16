@@ -139,8 +139,11 @@ function SidebarComponent() {
                 if (item.moduleFlag && !modules[item.moduleFlag as keyof typeof modules]) {
                     return false;
                 }
-                // Permission check
+                // Permission check — also enforce roles list when defined
                 if (item.permission) {
+                    if (item.roles && item.roles.length > 0 && !item.roles.includes(role as never)) {
+                        return false;
+                    }
                     return hasPermission(role, item.permission);
                 }
                 return item.roles.includes(role as never);
