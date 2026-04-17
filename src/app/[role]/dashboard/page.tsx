@@ -11,9 +11,21 @@ const WidgetGrid = dynamic(
     { ssr: false, loading: () => <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4"><Skeleton className="h-32" /><Skeleton className="h-32" /><Skeleton className="h-32" /><Skeleton className="h-32" /></div> }
 );
 
+/* Dedicated employee dashboard — purpose-built layout */
+const EmployeeDashboard = dynamic(
+    () => import("@/components/dashboard/employee-dashboard").then((m) => ({ default: m.EmployeeDashboard })),
+    { ssr: false, loading: () => <div className="space-y-4"><Skeleton className="h-10 w-64" /><div className="grid gap-4 grid-cols-1 lg:grid-cols-4"><Skeleton className="h-40 lg:col-span-2" /><Skeleton className="h-40" /><Skeleton className="h-40" /></div><Skeleton className="h-48" /></div> }
+);
+
 export default function DashboardPage() {
     const currentUser = useAuthStore((s) => s.currentUser);
     const role = currentUser.role;
+
+    /* Employee gets a dedicated, polished dashboard */
+    if (role === "employee") {
+        return <EmployeeDashboard />;
+    }
+
     const getDashboardLayout = useRolesStore((s) => s.getDashboardLayout);
     const widgets = getDashboardLayout(role);
 

@@ -539,22 +539,48 @@ export const useAttendanceStore = create<AttendanceState>()(
                     );
                 });
             },
-            approveOvertime: (requestId, approverId) =>
+            approveOvertime: (requestId, approverId) => {
+                const otReq = get().overtimeRequests.find((r) => r.id === requestId);
                 set((s) => ({
                     overtimeRequests: s.overtimeRequests.map((r) =>
                         r.id === requestId
                             ? { ...r, status: "approved" as const, reviewedBy: approverId, reviewedAt: new Date().toISOString() }
                             : r
                     ),
-                })),
-            rejectOvertime: (requestId, approverId, reason) =>
+                }));
+                // Notify the requesting employee
+                if (otReq) {
+                    useNotificationsStore.getState().addLog({
+                        employeeId: otReq.employeeId,
+                        type: "overtime_submitted",
+                        channel: "in_app",
+                        subject: "Overtime Approved",
+                        body: `Your overtime request for ${otReq.date} (${otReq.hoursRequested}h) has been approved.`,
+                        link: "/attendance",
+                    });
+                }
+            },
+            rejectOvertime: (requestId, approverId, reason) => {
+                const otReq = get().overtimeRequests.find((r) => r.id === requestId);
                 set((s) => ({
                     overtimeRequests: s.overtimeRequests.map((r) =>
                         r.id === requestId
                             ? { ...r, status: "rejected" as const, reviewedBy: approverId, reviewedAt: new Date().toISOString(), rejectionReason: reason }
                             : r
                     ),
-                })),
+                }));
+                // Notify the requesting employee
+                if (otReq) {
+                    useNotificationsStore.getState().addLog({
+                        employeeId: otReq.employeeId,
+                        type: "overtime_submitted",
+                        channel: "in_app",
+                        subject: "Overtime Rejected",
+                        body: `Your overtime request for ${otReq.date} (${otReq.hoursRequested}h) was rejected${reason ? `: ${reason}` : "."}`,
+                        link: "/attendance",
+                    });
+                }
+            },
 
             // ─── Shifts ───────────────────────────────────────────────
             createShift: (shift) => {

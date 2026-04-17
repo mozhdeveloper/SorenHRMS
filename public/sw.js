@@ -31,20 +31,38 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch event — serve from cache with network fallback
+// Fetch event — network-first with cache fallback (only for static assets)
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests and external URLs
+  // Skip non-GET requests
   if (event.request.method !== 'GET') return;
+  // Skip external URLs
   if (!event.request.url.startsWith(self.location.origin)) return;
-  
-  // Skip API routes and Supabase calls
-  if (event.request.url.includes('/api/') || event.request.url.includes('supabase')) return;
+  // Skip API routes, Supabase calls, and Next.js internals (RSC, data requests)
+  if (event.request.url.includes('/api/')) return;
+  if (event.request.url.includes('supabase')) return;
+  if (event.request.url.includes('_next/data')) return;
+  if (event.request.url.includes('_rsc')) return;
+  if (event.request.headers.get('RSC') === '1') return;
+  if (event.request.headers.get('Next-Router-State-Tree')) return;
+
+  // Only cache static assets (JS, CSS, images, fonts) — NOT HTML/navigation
+  const url = new URL(event.request.url);
+  const isStaticAsset = url.pathname.startsWith('/_next/static/') ||
+    url.pathname.startsWith('/models/') ||
+    url.pathname.match(/\.(js|css|png|jpg|jpeg|svg|ico|woff2?|ttf|webp|json)$/);
+
+  if (event.request.mode === 'navigate') {
+    // Navigation requests — always go to network, never intercept with cache
+    // This prevents the "Failed to convert value to Response" error
+    return;
+  }
+
+  if (!isStaticAsset) return;
 
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Clone and cache successful responses
-        if (response.status === 200) {
+        if (response && response.status === 200) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, clone);
@@ -53,13 +71,9 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => {
-        // Fallback to cache
         return caches.match(event.request).then((cached) => {
-          if (cached) return cached;
-          // For navigation requests, show offline page
-          if (event.request.mode === 'navigate') {
-            return caches.match(OFFLINE_URL);
-          }
+          // Always return a valid Response — never undefined
+          return cached || new Response('', { status: 503, statusText: 'Offline' });
         });
       })
   );

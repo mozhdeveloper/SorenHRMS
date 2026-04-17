@@ -209,13 +209,7 @@ export function notifyPayslipSigned(params: {
     employeeName: string;
     period: string;
 }): void {
-    // Notify the employee who signed
-    dispatchNotification("payslip_signed", {
-        name: params.employeeName,
-        period: params.period,
-    }, params.employeeId);
-
-    // Also notify admin/finance users (per rule recipientRoles)
+    // Notify admin/finance users only (per rule NR-14 recipientRoles: ["admin", "finance"])
     const employees = useEmployeesStore.getState().employees;
     const adminsAndFinance = employees.filter(
         (e) => (e.role === "admin" || e.role === "finance") && e.status === "active" && e.id !== params.employeeId
@@ -247,8 +241,13 @@ export function notifyLocationDisabled(params: {
     employeeName: string;
     time: string;
 }): void {
-    dispatchNotification("location_disabled", {
-        name: params.employeeName,
-        time: params.time,
-    }, params.employeeId);
+    // Notify admin users only (per rule NR-13 recipientRoles: ["admin"])
+    const employees = useEmployeesStore.getState().employees;
+    const admins = employees.filter(
+        (e) => e.role === "admin" && e.status === "active" && e.id !== params.employeeId
+    );
+    const vars = { name: params.employeeName, time: params.time };
+    admins.forEach((admin) => {
+        dispatchNotification("location_disabled", vars, admin.id, admin.email ?? undefined);
+    });
 }
