@@ -442,9 +442,11 @@ export function startWriteThrough(): void {
           }
         }
         // Events (append-only): all roles — employees clock in/out
+        // Collect promises so evidence inserts can wait for parent events (FK constraint)
+        const eventInsertPromises: Promise<boolean>[] = [];
         for (const evt of state.events) {
           if (!prevState.events.find((e) => e.id === evt.id)) {
-            attendanceDb.insertEvent(evt);
+            eventInsertPromises.push(attendanceDb.insertEvent(evt));
           }
         }
         // Holidays, shifts, exceptions, penalties, shifts: admin/hr only
@@ -480,10 +482,16 @@ export function startWriteThrough(): void {
           }
         }
         // Evidence (append-only): all roles
-        for (const ev of state.evidence) {
-          if (!prevState.evidence.find((e) => e.id === ev.id)) {
-            attendanceDb.insertEvidence(ev);
-          }
+        // Must wait for parent event inserts to commit first (attendance_evidence_event_id_fkey)
+        const newEvidence = state.evidence.filter(
+          (ev) => !prevState.evidence.find((e) => e.id === ev.id)
+        );
+        if (newEvidence.length > 0) {
+          Promise.all(eventInsertPromises).then(() => {
+            for (const ev of newEvidence) {
+              attendanceDb.insertEvidence(ev);
+            }
+          });
         }
         // Exceptions and penalties: admin/hr only
         if (isAdminOrHr) {
