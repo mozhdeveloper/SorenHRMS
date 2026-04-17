@@ -8,6 +8,7 @@ const ALLOWED_FIELDS = [
   "emergency_contact",
   "preferred_channel",
   "whatsapp_number",
+  "avatar_url",
 ] as const;
 
 type ProfilePatchField = (typeof ALLOWED_FIELDS)[number];
@@ -28,7 +29,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from("employees")
-      .select("phone, birthday, address, emergency_contact, preferred_channel, whatsapp_number")
+      .select("phone, birthday, address, emergency_contact, preferred_channel, whatsapp_number, avatar_url, name, email, role, department, status, work_type, salary, join_date, location, shift_id, team_leader, work_days, job_title")
       .eq("profile_id", user.id)
       .single();
 

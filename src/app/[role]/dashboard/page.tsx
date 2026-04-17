@@ -17,8 +17,16 @@ const EmployeeDashboard = dynamic(
     { ssr: false, loading: () => <div className="space-y-4"><Skeleton className="h-10 w-64" /><div className="grid gap-4 grid-cols-1 lg:grid-cols-4"><Skeleton className="h-40 lg:col-span-2" /><Skeleton className="h-40" /><Skeleton className="h-40" /></div><Skeleton className="h-48" /></div> }
 );
 
+/* Dedicated admin/HR dashboard — professional HRMS layout */
+const AdminDashboard = dynamic(
+    () => import("@/components/dashboard/admin-dashboard").then((m) => ({ default: m.AdminDashboard })),
+    { ssr: false, loading: () => <div className="space-y-6"><Skeleton className="h-10 w-80" /><div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"><Skeleton className="h-32" /><Skeleton className="h-32" /><Skeleton className="h-32" /><Skeleton className="h-32" /></div><div className="grid gap-4 grid-cols-1 lg:grid-cols-3"><Skeleton className="h-72 lg:col-span-2" /><Skeleton className="h-72" /></div></div> }
+);
+
 export default function DashboardPage() {
+    // ALL hooks must be called unconditionally — no early returns before hooks
     const currentUser = useAuthStore((s) => s.currentUser);
+    const getDashboardLayout = useRolesStore((s) => s.getDashboardLayout);
     const role = currentUser.role;
 
     /* Employee gets a dedicated, polished dashboard */
@@ -26,7 +34,11 @@ export default function DashboardPage() {
         return <EmployeeDashboard />;
     }
 
-    const getDashboardLayout = useRolesStore((s) => s.getDashboardLayout);
+    /* Admin and HR get the professional HRMS dashboard */
+    if (role === "admin" || role === "hr") {
+        return <AdminDashboard />;
+    }
+
     const widgets = getDashboardLayout(role);
 
     const roleDescriptions: Record<string, string> = {

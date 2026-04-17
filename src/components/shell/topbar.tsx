@@ -22,7 +22,7 @@ import {
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -64,9 +64,11 @@ export function Topbar() {
     const rolePrefix = `/${currentUser.role}`;
 
     // Get current employee ID for notification count
-    const currentEmployeeId = employees.find(
+    const currentEmployee = employees.find(
         (e) => e.profileId === currentUser.id || e.email?.toLowerCase() === currentUser.email?.toLowerCase() || e.name === currentUser.name
-    )?.id;
+    );
+    const currentEmployeeId = currentEmployee?.id;
+    const currentAvatarUrl = currentEmployee?.avatarUrl;
     const notifCount = currentEmployeeId
         ? notifLogs.filter((l) => l.employeeId === currentEmployeeId && !l.read).length
         : 0;
@@ -313,6 +315,9 @@ export function Topbar() {
                         <DropdownMenuTrigger asChild>
                             <Button variant="ghost" className="gap-2 px-2">
                                 <Avatar className="h-8 w-8">
+                                    {currentAvatarUrl && (
+                                        <AvatarImage src={currentAvatarUrl} alt={currentUser.name} />
+                                    )}
                                     <AvatarFallback className="bg-primary text-primary-foreground text-xs">
                                         {getInitials(currentUser.name)}
                                     </AvatarFallback>
