@@ -112,17 +112,17 @@ export default function EmployeeSettingsView() {
     const passwordReady = pwOld.length > 0 && pwNew.length >= 6 && pwConfirm.length > 0;
 
     return (
-        <div className="w-full max-w-6xl mx-auto px-4 md:px-8 py-6">
+        <div className="w-full max-w-5xl px-4 py-8">
             {/* Page header */}
-            <div className="mb-10 lg:mb-12">
+            <div className="mb-8 lg:mb-10">
                 <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Settings</h1>
-                <p className="text-sm md:text-base text-muted-foreground mt-1 md:mt-2">Manage your personal preferences</p>
+                <p className="text-sm md:text-base text-muted-foreground mt-1 md:mt-1.5">Manage your personal preferences</p>
                 <Separator className="mt-6" />
             </div>
 
             <div className="flex flex-col lg:flex-row gap-8 lg:gap-12">
                 {/* ─── Sidebar nav (desktop sticky, mobile horizontal scroll) ── */}
-                <nav className="lg:w-64 shrink-0">
+                <nav className="lg:w-48 shrink-0">
                     <div className="lg:sticky lg:top-6">
                         <ul className="flex lg:flex-col gap-1 overflow-x-auto pb-2 lg:pb-0 scrollbar-none">
                             {SECTIONS.map((s) => {
