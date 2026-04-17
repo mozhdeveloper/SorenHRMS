@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAuthStore } from "@/store/auth.store";
+import { useNotificationsStore } from "@/store/notifications.store";
 import { useTimesheetStore } from "@/store/timesheet.store";
 import { usePayrollStore, DEFAULT_PAY_SCHEDULE } from "@/store/payroll.store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,8 +28,8 @@ import { useRoleHref } from "@/lib/hooks/use-role-href";
    Org nav cards, pay schedule, rule sets, theme, notifications, security
    ═══════════════════════════════════════════════════════════════ */
 
-interface OrgSettings { companyName: string; industry: string; emailAbsenceAlerts: boolean; emailLeaveUpdates: boolean; emailPayrollAlerts: boolean; }
-const defaultOrgSettings: OrgSettings = { companyName: "Soren Data Solutions Inc.", industry: "technology", emailAbsenceAlerts: true, emailLeaveUpdates: true, emailPayrollAlerts: true };
+interface OrgSettings { companyName: string; industry: string; }
+const defaultOrgSettings: OrgSettings = { companyName: "Soren Data Solutions Inc.", industry: "technology" };
 function readOrgSettings() {
     if (typeof window === "undefined") return defaultOrgSettings;
     try { const s = localStorage.getItem("sdsi-org-settings"); if (s) return { ...defaultOrgSettings, ...JSON.parse(s) }; } catch { /* ignore */ }
@@ -51,6 +52,9 @@ function useOrgSettings() {
 export default function HrSettingsView() {
     const { theme, setTheme, currentUser, changePassword } = useAuthStore();
     const { settings, update } = useOrgSettings();
+    const { getEmployeePref, setEmployeePref } = useNotificationsStore();
+    const notifPrefs = getEmployeePref(currentUser.id);
+    const updateNotif = (patch: Partial<typeof notifPrefs>) => setEmployeePref(currentUser.id, patch);
     const { ruleSets, updateRuleSet, addRuleSet } = useTimesheetStore();
     const { paySchedule, updatePaySchedule } = usePayrollStore();
     const rh = useRoleHref();
@@ -286,10 +290,10 @@ export default function HrSettingsView() {
             <Card className="border border-border/50">
                 <CardHeader className="pb-3"><div className="flex items-center gap-2"><Bell className="h-5 w-5 text-muted-foreground" /><CardTitle className="text-base font-semibold">Notifications</CardTitle></div></CardHeader>
                 <CardContent className="space-y-4">
-                    {([{ key: "emailAbsenceAlerts" as const, label: "Absence alerts", desc: "Email when an employee is absent" }, { key: "emailLeaveUpdates" as const, label: "Leave updates", desc: "Email when leave is approved/rejected" }, { key: "emailPayrollAlerts" as const, label: "Payroll alerts", desc: "Email when payslips are issued" }]).map((n) => (
+                    {([{ key: "absenceAlerts" as const, label: "Absence alerts", desc: "Notify when an employee is absent" }, { key: "leaveUpdates" as const, label: "Leave updates", desc: "Notify when leave is approved/rejected" }, { key: "payrollAlerts" as const, label: "Payroll alerts", desc: "Notify when payslips are issued" }]).map((n) => (
                         <div key={n.key} className="flex items-center justify-between">
                             <div><p className="text-sm font-medium">{n.label}</p><p className="text-xs text-muted-foreground">{n.desc}</p></div>
-                            <Switch checked={settings[n.key]} onCheckedChange={(checked) => { update({ [n.key]: checked }); toast.success(`${n.label} ${checked ? "enabled" : "disabled"}`); }} />
+                            <Switch checked={notifPrefs[n.key]} onCheckedChange={(checked) => { updateNotif({ [n.key]: checked }); toast.success(`${n.label} ${checked ? "enabled" : "disabled"}`); }} />
                         </div>
                     ))}
                 </CardContent>
@@ -303,11 +307,24 @@ export default function HrSettingsView() {
                         <CardTitle className="text-base font-semibold">Push Notifications</CardTitle>
                     </div>
                 </CardHeader>
-                <CardContent>
-                    <PushNotificationPrompt variant="inline" className="w-full justify-start" />
-                    <p className="text-xs text-muted-foreground mt-2">
-                        Enable push notifications to receive instant alerts even when the app is closed.
-                    </p>
+                <CardContent className="space-y-3">
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-border/30 bg-muted/20">
+                        <div><p className="text-sm font-medium">Push Notifications</p><p className="text-xs text-muted-foreground">Receive real-time push alerts on your device</p></div>
+                        <Switch checked={notifPrefs.pushEnabled} onCheckedChange={(checked) => { updateNotif({ pushEnabled: checked }); toast.success(`Push notifications ${checked ? "enabled" : "disabled"}`); }} />
+                    </div>
+                    {notifPrefs.pushEnabled && (
+                        <>
+                            <PushNotificationPrompt variant="inline" className="w-full justify-start" />
+                            <p className="text-xs text-muted-foreground">
+                                Enable browser permissions above to receive instant alerts even when the app is closed.
+                            </p>
+                        </>
+                    )}
+                    {!notifPrefs.pushEnabled && (
+                        <p className="text-xs text-muted-foreground">
+                            Push notifications are disabled. Toggle on to receive real-time alerts.
+                        </p>
+                    )}
                 </CardContent>
             </Card>
 

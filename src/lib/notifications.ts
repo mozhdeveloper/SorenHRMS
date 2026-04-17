@@ -1,4 +1,4 @@
-import { useNotificationsStore } from "@/store/notifications.store";
+import { useNotificationsStore, isNotificationAllowed, isPushAllowed } from "@/store/notifications.store";
 import { useEmployeesStore } from "@/store/employees.store";
 import { toast } from "sonner";
 import type { NotificationType, NotificationTrigger } from "@/types";
@@ -45,9 +45,13 @@ interface SendNotificationParams {
 /**
  * Mock email notification sender.
  * Logs to notification store and shows a toast.
+ * Respects per-employee category opt-outs and push prefs.
  */
 export function sendNotification(params: SendNotificationParams): void {
     const { employeeId, type, subject, body, channel = "email", link, employeeName, employeeEmail, employeePhone } = params;
+
+    // Check per-employee opt-out for this notification category
+    if (!isNotificationAllowed(employeeId, type)) return;
 
     // Auto-generate link based on notification type if not explicitly provided
     const resolvedLink = link || TYPE_LINK_MAP[type] || "/notifications";
@@ -76,26 +80,28 @@ export function sendNotification(params: SendNotificationParams): void {
         ].slice(0, 500),
     });
 
-    // Fire push notification to the recipient (fire-and-forget)
-    let pushUrl = resolvedLink;
-    try {
-        const emp = useEmployeesStore.getState().employees.find((e) => e.id === employeeId);
-        if (emp?.role) {
-            pushUrl = `/${emp.role}${resolvedLink}`;
-        }
-    } catch { /* best-effort */ }
+    // Fire push notification only if the employee has push enabled
+    if (isPushAllowed(employeeId)) {
+        let pushUrl = resolvedLink;
+        try {
+            const emp = useEmployeesStore.getState().employees.find((e) => e.id === employeeId);
+            if (emp?.role) {
+                pushUrl = `/${emp.role}${resolvedLink}`;
+            }
+        } catch { /* best-effort */ }
 
-    fetch("/api/push/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            employeeId,
-            title: subject,
-            body,
-            url: pushUrl,
-            tag: notificationId, // Use same ID for deduplication with in-app notifications
-        }),
-    }).catch(() => { /* push is best-effort */ });
+        fetch("/api/push/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                employeeId,
+                title: subject,
+                body,
+                url: pushUrl,
+                tag: notificationId,
+            }),
+        }).catch(() => { /* push is best-effort */ });
+    }
 
     // Show toast simulating dispatch
     const toLabel = employeeName ?? employeeId;

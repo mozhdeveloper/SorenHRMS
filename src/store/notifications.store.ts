@@ -94,16 +94,18 @@ export interface EmployeeNotifPrefs {
     leaveUpdates: boolean;   // leave_approved, leave_rejected
     absenceAlerts: boolean;  // absence, attendance_missing
     payrollAlerts: boolean;  // payslip_published, payment_confirmed, payslip_unsigned_reminder
+    pushEnabled: boolean;    // Web Push notifications (browser-level)
 }
 
-const DEFAULT_EMPLOYEE_PREFS: EmployeeNotifPrefs = {
+export const DEFAULT_EMPLOYEE_PREFS: EmployeeNotifPrefs = {
     leaveUpdates: true,
     absenceAlerts: true,
     payrollAlerts: true,
+    pushEnabled: true,
 };
 
 /** Returns which pref key gates a given trigger, or null if always allowed. */
-function prefKeyForTrigger(trigger: NotificationTrigger): keyof EmployeeNotifPrefs | null {
+export function prefKeyForTrigger(trigger: NotificationTrigger | string): keyof EmployeeNotifPrefs | null {
     if (trigger === "leave_approved" || trigger === "leave_rejected") return "leaveUpdates";
     if (trigger === "absence" || trigger === "attendance_missing") return "absenceAlerts";
     if (
@@ -113,6 +115,22 @@ function prefKeyForTrigger(trigger: NotificationTrigger): keyof EmployeeNotifPre
         trigger === "payslip_signed"
     ) return "payrollAlerts";
     return null;
+}
+
+/** Check if a notification should be allowed for the given employee. */
+export function isNotificationAllowed(employeeId: string, triggerOrType: NotificationTrigger | string): boolean {
+    const state = useNotificationsStore.getState();
+    const prefs = { ...DEFAULT_EMPLOYEE_PREFS, ...state.employeePrefs[employeeId] };
+    const prefKey = prefKeyForTrigger(triggerOrType);
+    if (prefKey !== null && !prefs[prefKey]) return false;
+    return true;
+}
+
+/** Check if push is enabled for the given employee. */
+export function isPushAllowed(employeeId: string): boolean {
+    const state = useNotificationsStore.getState();
+    const prefs = { ...DEFAULT_EMPLOYEE_PREFS, ...state.employeePrefs[employeeId] };
+    return prefs.pushEnabled;
 }
 
 function renderTemplate(template: string, vars: Record<string, string>): string {
@@ -158,6 +176,11 @@ export const useNotificationsStore = create<NotificationsState>()(
             employeePrefs: {} as Record<string, EmployeeNotifPrefs>,
 
             addLog: (data) => {
+                // Check per-employee category opt-out
+                const empPrefs = { ...DEFAULT_EMPLOYEE_PREFS, ...get().employeePrefs[data.employeeId] };
+                const prefKey = prefKeyForTrigger(data.type);
+                if (prefKey !== null && !empPrefs[prefKey]) return; // employee opted out of this category
+
                 const notificationId = `NOTIF-${nanoid(8)}`;
                 set((s) => ({
                     logs: [
@@ -170,8 +193,8 @@ export const useNotificationsStore = create<NotificationsState>()(
                         ...s.logs,
                     ].slice(0, 500), // keep max 500
                 }));
-                // Fire push notification (fire-and-forget) so bell/push
-                // always mirrors the in-app notification log
+                // Fire push notification only if employee has push enabled
+                if (!empPrefs.pushEnabled) return;
                 try {
                     let pushUrl = data.link || "/notifications";
                     const emp = useEmployeesStore.getState().employees.find((e) => e.id === data.employeeId);
@@ -322,33 +345,31 @@ export const useNotificationsStore = create<NotificationsState>()(
                 }));
 
                 // ─── Fire real push notification (fire-and-forget) ───
-                // Send to /api/push/send to deliver via Web Push API
-                // This works even when the browser tab is closed (PWA)
-                // Resolve recipient role to build a role-prefixed URL for the push payload.
-                // Without the prefix the service worker would navigate to e.g. /tasks/TSK-XXX
-                // which doesn't exist — the real route is /{role}/tasks/TSK-XXX.
-                let pushUrl = autoLink;
-                try {
-                    const emp = useEmployeesStore.getState().employees.find((e) => e.id === recipientEmployeeId);
-                    if (emp?.role) {
-                        pushUrl = `/${emp.role}${autoLink}`;
-                    }
-                } catch { /* best-effort */ }
+                // Only send push if the employee has push enabled in their prefs.
+                const recipientPrefs = { ...DEFAULT_EMPLOYEE_PREFS, ...state.employeePrefs[recipientEmployeeId] };
+                if (recipientPrefs.pushEnabled) {
+                    let pushUrl = autoLink;
+                    try {
+                        const emp = useEmployeesStore.getState().employees.find((e) => e.id === recipientEmployeeId);
+                        if (emp?.role) {
+                            pushUrl = `/${emp.role}${autoLink}`;
+                        }
+                    } catch { /* best-effort */ }
 
-                fetch("/api/push/send", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        employeeId: recipientEmployeeId,
-                        title: subject,
-                        body,
-                        url: pushUrl,
-                        tag: notificationId, // Use same ID for deduplication with in-app notifications
-                    }),
-                }).catch((err) => {
-                    // Silently fail — push is best-effort
-                    console.debug("[notifications] Push send failed (non-critical):", err);
-                });
+                    fetch("/api/push/send", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            employeeId: recipientEmployeeId,
+                            title: subject,
+                            body,
+                            url: pushUrl,
+                            tag: notificationId,
+                        }),
+                    }).catch((err) => {
+                        console.debug("[notifications] Push send failed (non-critical):", err);
+                    });
+                }
             },
 
             resetToSeed: () => set({ logs: [], rules: [...DEFAULT_RULES], providerConfig: { ...DEFAULT_PROVIDER }, employeePrefs: {} }),

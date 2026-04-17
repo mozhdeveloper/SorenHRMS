@@ -430,11 +430,35 @@ export default function EmployeeSettingsView() {
 
                             {/* ── Push Notifications ─────────────────────────────── */}
                             {activeSection === "push" && (
-                                <div className="p-5">
-                                    <PushNotificationPrompt variant="inline" className="w-full" />
-                                    <p className="text-[11px] text-muted-foreground mt-2 px-1">
-                                        Enable push notifications to receive instant alerts even when the app is closed.
-                                    </p>
+                                <div className="p-5 space-y-4">
+                                    {/* Store-backed push toggle */}
+                                    <div className="flex items-center justify-between gap-4 p-3 rounded-lg border border-border/30 bg-muted/20">
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-medium">Push Notifications</p>
+                                            <p className="text-xs text-muted-foreground">Receive real-time push alerts on your device</p>
+                                        </div>
+                                        <Switch
+                                            checked={prefs.pushEnabled}
+                                            onCheckedChange={(checked) => {
+                                                update({ pushEnabled: checked });
+                                                toast.success(`Push notifications ${checked ? "enabled" : "disabled"}`);
+                                            }}
+                                            className="scale-90 data-[state=checked]:bg-primary"
+                                        />
+                                    </div>
+                                    {prefs.pushEnabled && (
+                                        <>
+                                            <PushNotificationPrompt variant="inline" className="w-full" />
+                                            <p className="text-[10px] text-muted-foreground px-1">
+                                                Enable browser permissions above to receive instant alerts even when the app is closed.
+                                            </p>
+                                        </>
+                                    )}
+                                    {!prefs.pushEnabled && (
+                                        <p className="text-[11px] text-muted-foreground px-1">
+                                            Push notifications are disabled. Toggle on to receive real-time alerts.
+                                        </p>
+                                    )}
                                 </div>
                             )}
 
