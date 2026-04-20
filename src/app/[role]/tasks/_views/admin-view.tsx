@@ -38,8 +38,9 @@ import {
     ListTodo, CheckCircle2, Clock, Eye, AlertTriangle, Plus, Search, MoreHorizontal,
     Pencil, Trash2, Users, FolderOpen, ArrowUpDown, XCircle, ChevronRight, ChevronDown,
     Layers, LayoutGrid, Table2, FolderPlus, Send, Tag, Briefcase, RefreshCw,
-    ClipboardCheck, Filter,
+    ClipboardCheck, Filter, CalendarDays,
 } from "lucide-react";
+import { FullScreenCalendar, type CalendarItem, type CalendarItemColor } from "@/components/ui/fullscreen-calendar";
 import type { Task, TaskStatus, TaskPriority, TaskGroup, TaskTag } from "@/types";
 
 // ── Status & Priority Config ──────────────────────────────────
@@ -613,6 +614,9 @@ export default function AdminTasksView() {
                             <Badge variant="secondary" className="text-[10px] h-4 min-w-4 px-1">
                                 {groups.length}
                             </Badge>
+                        </TabsTrigger>
+                        <TabsTrigger value="calendar" className="gap-1.5 text-xs sm:text-sm">
+                            <CalendarDays className="h-3.5 w-3.5" /> Calendar
                         </TabsTrigger>
                     </TabsList>
                 </div>
@@ -1277,6 +1281,22 @@ export default function AdminTasksView() {
                         )}
                     </div>
                 </TabsContent>
+
+                {/* ═══════════════════════════════════════════════
+                    CALENDAR TAB
+                ═══════════════════════════════════════════════ */}
+                <TabsContent value="calendar" className="mt-4">
+                    <TaskCalendarView
+                        tasks={filteredTasks}
+                        getEmpName={getEmpName}
+                        onStatusChange={(taskId, status) => {
+                            updateTask(taskId, { status });
+                            toast.success(`Task status changed to ${STATUS_CONFIG[status].label}`);
+                        }}
+                        onCreateClick={() => setCreateOpen(true)}
+                        roleHref={roleHref}
+                    />
+                </TabsContent>
             </Tabs>
 
             {/* ═══════════════════════════════════════════════════════
@@ -1754,5 +1774,125 @@ export default function AdminTasksView() {
                 </AlertDialogContent>
             </AlertDialog>
         </div>
+    );
+}
+
+// ── Task Calendar Sub-Component ──────────────────────────────────
+
+const TASK_STATUS_COLORS: Record<TaskStatus, CalendarItemColor> = {
+    open: { bg: "bg-blue-100 dark:bg-blue-900/30", text: "text-blue-700 dark:text-blue-400", dot: "bg-blue-500" },
+    in_progress: { bg: "bg-yellow-100 dark:bg-yellow-900/30", text: "text-yellow-700 dark:text-yellow-400", dot: "bg-yellow-500" },
+    submitted: { bg: "bg-purple-100 dark:bg-purple-900/30", text: "text-purple-700 dark:text-purple-400", dot: "bg-purple-500" },
+    verified: { bg: "bg-green-100 dark:bg-green-900/30", text: "text-green-700 dark:text-green-400", dot: "bg-green-500" },
+    rejected: { bg: "bg-red-100 dark:bg-red-900/30", text: "text-red-700 dark:text-red-400", dot: "bg-red-500" },
+    cancelled: { bg: "bg-gray-100 dark:bg-gray-900/30", text: "text-gray-700 dark:text-gray-400", dot: "bg-gray-400" },
+};
+
+const TASK_STATUS_OPTIONS: TaskStatus[] = ["open", "in_progress", "submitted", "verified", "rejected", "cancelled"];
+
+interface TaskCalendarViewProps {
+    tasks: Task[];
+    getEmpName: (id: string) => string;
+    onStatusChange: (taskId: string, status: TaskStatus) => void;
+    onCreateClick: () => void;
+    roleHref: (path: string) => string;
+}
+
+function TaskCalendarView({ tasks, getEmpName, onStatusChange, onCreateClick, roleHref }: TaskCalendarViewProps) {
+    const [statusDialogTask, setStatusDialogTask] = useState<Task | null>(null);
+
+    const calendarItems: CalendarItem[] = useMemo(() =>
+        tasks
+            .filter((t) => t.dueDate)
+            .map((t) => ({
+                id: t.id,
+                title: t.title,
+                date: t.dueDate!,
+                status: t.status,
+                priority: t.priority,
+            })),
+        [tasks],
+    );
+
+    const handleItemClick = useCallback((item: CalendarItem) => {
+        const task = tasks.find((t) => t.id === item.id);
+        if (task) setStatusDialogTask(task);
+    }, [tasks]);
+
+    return (
+        <>
+            <Card className="border border-border/50 overflow-hidden">
+                <FullScreenCalendar
+                    items={calendarItems}
+                    colorMap={TASK_STATUS_COLORS}
+                    onItemClick={handleItemClick}
+                    itemLabel="Tasks"
+                    headerActions={
+                        <Button className="w-full gap-2 md:w-auto" size="sm" onClick={onCreateClick}>
+                            <Plus className="h-4 w-4" />
+                            <span>New Task</span>
+                        </Button>
+                    }
+                />
+            </Card>
+
+            {/* Quick Status Change Dialog */}
+            <Dialog open={!!statusDialogTask} onOpenChange={(v) => { if (!v) setStatusDialogTask(null); }}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle className="text-base">Change Task Status</DialogTitle>
+                    </DialogHeader>
+                    {statusDialogTask && (
+                        <div className="space-y-4 pt-2">
+                            <div className="space-y-1.5">
+                                <Link
+                                    href={roleHref(`/tasks/${statusDialogTask.id}`)}
+                                    className="text-sm font-semibold hover:underline"
+                                >
+                                    {statusDialogTask.title}
+                                </Link>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    {statusDialogTask.dueDate && (
+                                        <span>Due: {statusDialogTask.dueDate}</span>
+                                    )}
+                                    <span>•</span>
+                                    <span className="capitalize">{statusDialogTask.priority}</span>
+                                </div>
+                                {statusDialogTask.assignedTo.length > 0 && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Assigned: {statusDialogTask.assignedTo.slice(0, 3).map(getEmpName).join(", ")}
+                                        {statusDialogTask.assignedTo.length > 3 && ` +${statusDialogTask.assignedTo.length - 3}`}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                {TASK_STATUS_OPTIONS.map((status) => {
+                                    const isActive = statusDialogTask.status === status;
+                                    const color = TASK_STATUS_COLORS[status];
+                                    const cfg = STATUS_CONFIG[status];
+                                    const Icon = cfg.icon;
+                                    return (
+                                        <Button
+                                            key={status}
+                                            variant={isActive ? "default" : "outline"}
+                                            size="sm"
+                                            className={`gap-1.5 justify-start text-xs ${isActive ? "" : `${color.text} hover:${color.bg}`}`}
+                                            disabled={isActive}
+                                            onClick={() => {
+                                                onStatusChange(statusDialogTask.id, status);
+                                                setStatusDialogTask(null);
+                                            }}
+                                        >
+                                            <Icon className="h-3.5 w-3.5" />
+                                            {cfg.label}
+                                        </Button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+        </>
     );
 }

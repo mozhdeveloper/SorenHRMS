@@ -203,11 +203,12 @@ export default function QRKioskPage() {
             setFeedback("idle");
             setCheckedInName("");
             setQrProcessing(false);
-            // Auto-restart scanner for the next employee
-            if (autoRestartRef.current && (state === "success-in" || state === "success-out")) {
+            processingLockRef.current = false;
+            // Auto-restart scanner after ANY feedback (success or error)
+            if (autoRestartRef.current) {
                 startQrScannerRef.current();
             }
-        }, ks.feedbackDuration);
+        }, state === "error" ? Math.max(ks.feedbackDuration, 2000) : ks.feedbackDuration);
     }, [ks.feedbackDuration]);
 
     const addToKioskLog = useCallback((name: string) => {
@@ -249,9 +250,13 @@ export default function QRKioskPage() {
         triggerFeedback(modeRef.current === "in" ? "success-in" : "success-out", empName);
     }, [checkWorkDay, addToKioskLog, triggerFeedback, storeCheckIn, storeCheckOut]);
 
+    // Use a ref for processQrPayload so the scanning interval always calls
+    // the latest version — avoids stale closure issues when deps change.
+    const processQrPayloadRef = useRef<(payload: string) => Promise<void>>(async () => {});
+
     const processQrPayload = useCallback(async (payload: string) => {
         // Use ref-based lock (synchronous) to prevent duplicate scans
-        if (processingLockRef.current || qrProcessing) return;
+        if (processingLockRef.current) return;
         processingLockRef.current = true;
         setQrProcessing(true);
 
@@ -279,7 +284,6 @@ export default function QRKioskPage() {
             if (!result.valid) {
                 setErrorMessage(result.message || "Invalid QR code");
                 triggerFeedback("error");
-                setQrProcessing(false);
                 return;
             }
 
@@ -299,11 +303,14 @@ export default function QRKioskPage() {
             console.error("[processQrPayload] Error:", error);
             setErrorMessage("Failed to process QR code");
             triggerFeedback("error");
-        } finally {
-            setQrProcessing(false);
-            processingLockRef.current = false;
         }
-    }, [employees, qrProcessing, deviceId, stopQrScanner, clockEmployee, triggerFeedback]);
+        // NOTE: processingLockRef is cleared by triggerFeedback timeout —
+        // do NOT clear it here or a second scan could fire before the
+        // feedback overlay dismisses.
+    }, [employees, deviceId, stopQrScanner, clockEmployee, triggerFeedback]);
+
+    // Keep the ref in sync so the scan interval always uses the latest callback
+    processQrPayloadRef.current = processQrPayload;
 
     const startQrScanner = useCallback(async () => {
         setQrCameraError(false);
@@ -343,7 +350,7 @@ export default function QRKioskPage() {
                     try {
                         const barcodes = await detector.detect(qrVideoRef.current);
                         if (barcodes.length > 0 && barcodes[0].rawValue) {
-                            processQrPayload(barcodes[0].rawValue);
+                            processQrPayloadRef.current(barcodes[0].rawValue);
                         }
                     } catch {
                         // Scan frame error - skip
@@ -364,15 +371,16 @@ export default function QRKioskPage() {
                     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     const code = jsQR(imageData.data, canvas.width, canvas.height);
                     if (code?.data) {
-                        processQrPayload(code.data);
+                        processQrPayloadRef.current(code.data);
                     }
                 }, 400);
             }
         } catch (err) {
             console.error("[QR] Camera error:", err);
             setQrCameraError(true);
+            setQrScanning(false);
         }
-    }, [processQrPayload]);
+    }, []);
 
     // Keep startQrScannerRef in sync to avoid circular dependency with triggerFeedback
     startQrScannerRef.current = startQrScanner;

@@ -270,7 +270,7 @@ function AttendanceTrendChart() {
             </CardHeader>
             <CardContent className="pb-4">
                 <div className="h-[260px]">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10}>
                         <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
                             <defs>
                                 <linearGradient id="presentGrad" x1="0" y1="0" x2="0" y2="1">
@@ -362,7 +362,7 @@ function DepartmentDistributionChart() {
             </CardHeader>
             <CardContent className="pb-4">
                 <div className="h-[180px]">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={10} minHeight={10}>
                         <PieChart>
                             <Pie
                                 data={data}
