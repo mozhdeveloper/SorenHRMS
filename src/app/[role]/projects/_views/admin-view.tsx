@@ -426,6 +426,7 @@ export default function AdminProjectsView() {
 const VERIFICATION_META: Record<VerificationMethod, { label: string; icon: React.ElementType; color: string }> = {
     face_only: { label: "Face Only", icon: ScanFace, color: "bg-violet-500/15 text-violet-700 dark:text-violet-400" },
     qr_only: { label: "QR Only", icon: QrCode, color: "bg-blue-500/15 text-blue-700 dark:text-blue-400" },
+    face_or_qr: { label: "Face or QR", icon: QrCode, color: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400" },
     manual_only: { label: "Manual", icon: UserCheck, color: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
 };
 

@@ -161,13 +161,16 @@ export async function POST(request: NextRequest) {
 
                 // 1b. Record attendance evidence for audit trail
                 const evidenceId = `EVI-${nanoid(8)}`;
+                // geofence_pass: true when location was provided AND geofence passed;
+                // null when no location was submitted (geofence check not applicable).
+                const geofencePassValue = location != null ? (result.geofencePass ?? true) : null;
                 const { error: eviError } = await supabase.from("attendance_evidence").insert({
                     id: evidenceId,
                     event_id: eventId,
                     gps_lat: location?.lat ?? null,
                     gps_lng: location?.lng ?? null,
                     gps_accuracy_meters: location?.accuracy ?? null,
-                    geofence_pass: true, // If we got here, geofence passed (or wasn't required)
+                    geofence_pass: geofencePassValue,
                     qr_token_id: result.qrType === "dynamic" ? qrPayload : null,
                     device_integrity_result: null, // QR scan doesn't verify device integrity
                     face_verified: null, // QR scan doesn't verify face

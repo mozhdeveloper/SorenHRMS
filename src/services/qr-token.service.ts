@@ -211,7 +211,7 @@ async function validateQRTokenManual(
 async function validateLocation(
   kioskId: string,
   location: { lat: number; lng: number; accuracy?: number },
-): Promise<{ valid: boolean; message: string }> {
+): Promise<{ valid: boolean; message: string; distanceMeters?: number; geofencePass: boolean }> {
   try {
     const supabase = await createAdminSupabaseClient();
 
@@ -223,40 +223,51 @@ async function validateLocation(
       .single();
 
     if (!kiosk?.project_id) {
-      // No project associated with kiosk, allow
-      return { valid: true, message: "No location constraint" };
+      // No project associated with kiosk — no location constraint
+      return { valid: true, message: "No location constraint", geofencePass: true };
     }
 
-    // Get project location
+    // Get project location + geofence config
     const { data: project } = await supabase
       .from("projects")
-      .select("location_lat, location_lng, location_radius")
+      .select("location_lat, location_lng, location_radius, geofence_radius_meters, require_geofence")
       .eq("id", kiosk.project_id)
       .single();
 
     if (!project?.location_lat || !project?.location_lng) {
-      // No location defined for project, allow
-      return { valid: true, message: "No project location defined" };
+      // No location defined for project — allow
+      return { valid: true, message: "No project location defined", geofencePass: true };
     }
 
-    // Check geofence
-    const radius = project.location_radius || 100; // Default 100m
+    // If geofence is not required for this project, skip the check
+    if (project.require_geofence === false) {
+      return { valid: true, message: "Geofence not required for this project", geofencePass: true };
+    }
+
+    // Prefer geofence_radius_meters (integer, has DB DEFAULT 100) over location_radius
+    const radius = (project.geofence_radius_meters as number) || (project.location_radius as number) || 100;
     const geofenceResult = isWithinGeofence(
       location.lat,
       location.lng,
-      project.location_lat,
-      project.location_lng,
-      radius
+      project.location_lat as number,
+      project.location_lng as number,
+      radius,
     );
 
     if (!geofenceResult.within) {
-      return { valid: false, message: `Outside geofence (${geofenceResult.distanceMeters}m from site, allowed: ${radius}m)` };
+      return {
+        valid: false,
+        message: `Outside geofence (${geofenceResult.distanceMeters}m from site, allowed: ${radius}m)`,
+        distanceMeters: geofenceResult.distanceMeters,
+        geofencePass: false,
+      };
     }
 
-    return { valid: true, message: "Location validated" };
+    return { valid: true, message: "Location validated", distanceMeters: geofenceResult.distanceMeters, geofencePass: true };
   } catch (error) {
     console.error("[validateLocation] Error:", error);
-    return { valid: true, message: "Location validation error - allowing" };
+    // Allow on error (do not block check-in due to DB connectivity issues)
+    return { valid: true, message: "Location validation error - allowing", geofencePass: true };
   }
 }
 
@@ -385,6 +396,8 @@ export async function validateDailyQR(
   valid?: boolean;
   employeeId?: string;
   message?: string;
+  geofencePass?: boolean;
+  distanceMeters?: number;
   error?: string;
 }> {
   try {
@@ -400,15 +413,26 @@ export async function validateDailyQR(
         return {
           ok: true,
           valid: false,
+          geofencePass: false,
+          distanceMeters: locationResult.distanceMeters,
           message: `Location validation failed: ${locationResult.message}`,
         };
       }
+      return {
+        ok: true,
+        valid: true,
+        employeeId: parsed.employeeId,
+        geofencePass: locationResult.geofencePass,
+        distanceMeters: locationResult.distanceMeters,
+        message: "Daily QR validated successfully",
+      };
     }
 
     return {
       ok: true,
       valid: true,
       employeeId: parsed.employeeId,
+      geofencePass: undefined, // no location provided — geofence not checked
       message: "Daily QR validated successfully",
     };
   } catch (error) {
@@ -429,6 +453,8 @@ export async function validateStaticQR(
   valid?: boolean;
   employeeId?: string;
   message?: string;
+  geofencePass?: boolean;
+  distanceMeters?: number;
   error?: string;
 }> {
   try {
@@ -443,15 +469,26 @@ export async function validateStaticQR(
         return {
           ok: true,
           valid: false,
+          geofencePass: false,
+          distanceMeters: locationResult.distanceMeters,
           message: `Location validation failed: ${locationResult.message}`,
         };
       }
+      return {
+        ok: true,
+        valid: true,
+        employeeId: parsed.employeeId,
+        geofencePass: locationResult.geofencePass,
+        distanceMeters: locationResult.distanceMeters,
+        message: "Static QR validated successfully",
+      };
     }
 
     return {
       ok: true,
       valid: true,
       employeeId: parsed.employeeId,
+      geofencePass: undefined,
       message: "Static QR validated successfully",
     };
   } catch (error) {
@@ -473,6 +510,8 @@ export async function validateAnyQR(
   employeeId?: string;
   message?: string;
   qrType?: string;
+  geofencePass?: boolean;
+  distanceMeters?: number;
   error?: string;
 }> {
   const qrType = detectQRType(payload);
