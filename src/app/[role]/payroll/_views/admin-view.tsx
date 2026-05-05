@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
-import { Plus, CheckCircle, Eye, Lock, Gift, Download, CalendarDays, RotateCcw, Send, CreditCard, FileText, Sparkles, Shield, PenTool, Search, Settings, Building2, Printer, Clock, Percent, Trash2, AlertCircle, Info, Save, Pencil, X, Loader2, FileSignature, Calculator, Edit, Users } from "lucide-react";
+import { Plus, CheckCircle, Eye, Lock, LockOpen, Gift, Download, CalendarDays, RotateCcw, Send, CreditCard, FileText, Sparkles, Shield, PenTool, Search, Settings, Building2, Printer, Clock, Percent, Trash2, AlertCircle, Info, Save, Pencil, X, Loader2, FileSignature, Calculator, Edit, Users } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/format";
 import { computeAllPHDeductions } from "@/lib/ph-deductions";
@@ -38,6 +38,7 @@ import { PayslipTable } from "@/components/payroll/payslip-table";
 import { PayScheduleSettings } from "@/components/payroll/pay-schedule-settings";
 import { GovernmentReports } from "@/components/payroll/government-reports";
 import { PrintablePayslip } from "@/components/payroll/printable-payslip";
+import { PayrollReadinessChecklist } from "@/components/payroll/payroll-readiness-checklist";
 import { format, endOfMonth, subMonths, getYear, getMonth } from "date-fns";
 import { dispatchNotification } from "@/lib/notifications";
 import { useAuditStore } from "@/store/audit.store";
@@ -48,6 +49,8 @@ import { useDepartmentsStore } from "@/store/departments.store";
 import { useProjectsStore } from "@/store/projects.store";
 import { ThirteenthMonthModal } from "@/components/payroll/thirteenth-month-modal";
 import { ExportBackupDialog } from "@/components/export-backup-dialog";
+import { ImportDataDialog } from "@/components/import-data-dialog";
+import PayrollPaymentWizard, { type WizardStep, usePayrollProgress } from "@/features/payroll-payment/payroll-payment-wizard";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
@@ -65,7 +68,7 @@ interface AdminPayrollViewProps {
 export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewProps) {
     const params = useParams();
     const role = params.role as string;
-    const { payslips, runs, adjustments, finalPayComputations, issuePayslip, confirmPayslip, publishPayslip, recordPayment, confirmPaidByFinance, lockRun, publishRun, markRunPaid, approveAdjustment, applyAdjustment, createAdjustment, computeFinalPay, generate13thMonth, exportBankFile, createDraftRun, validateRun, resetToSeed, paySchedule, updatePaySchedule, signatureConfig, updateSignatureConfig, deductionOverrides, setDeductionOverride, removeDeductionOverride, clearEmployeeOverrides, getDeductionOverride, getEmployeeOverrides, globalDefaults, updateGlobalDefault, getGlobalDefault, updatePayslipFromServer } = usePayrollStore();
+    const { payslips, runs, adjustments, finalPayComputations, issuePayslip, confirmPayslip, publishPayslip, recordPayment, confirmPaidByFinance, lockRun, unlockRun, publishRun, markRunPaid, approveAdjustment, applyAdjustment, createAdjustment, computeFinalPay, generate13thMonth, exportBankFile, createDraftRun, validateRun, resetToSeed, paySchedule, updatePaySchedule, signatureConfig, updateSignatureConfig, deductionOverrides, setDeductionOverride, removeDeductionOverride, clearEmployeeOverrides, getDeductionOverride, getEmployeeOverrides, globalDefaults, updateGlobalDefault, getGlobalDefault, updatePayslipFromServer, isPayslipRunLocked } = usePayrollStore();
     const employees = useEmployeesStore((s) => s.employees);
     const currentUser = useAuthStore((s) => s.currentUser);
     const { getActiveByEmployee, recordDeduction } = useLoansStore();
@@ -89,8 +92,14 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
         toast.success("Payroll data reset");
     };
 
+    const suggestedWizardStep = usePayrollProgress();
+    const [wizardStep, setWizardStep] = useState<WizardStep>(suggestedWizardStep);
+    // Auto-follow suggested step unless user manually navigated
+    useEffect(() => { setWizardStep(suggestedWizardStep); }, [suggestedWizardStep]);
+
     const [open, setOpen] = useState(false);
     const [snapshotRunDate, setSnapshotRunDate] = useState<string | null>(null);
+    const [checklistPassedMap, setChecklistPassedMap] = useState<Record<string, boolean>>({});
     const [viewSlip, setViewSlip] = useState<string | null>(null);
     const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
     const [formAllowances, setFormAllowances] = useState("0");
@@ -178,7 +187,13 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
     const last6Months = useMemo(() => Array.from({ length: 6 }, (_, i) => format(subMonths(new Date(), i), "yyyy-MM")), []);
     const last12Months = useMemo(() => Array.from({ length: 12 }, (_, i) => format(subMonths(new Date(), i), "yyyy-MM")), []);
     const activeEmployees = useMemo(() => employees.filter((e) => e.status === "active"), [employees]);
-    const allSelected = selectedEmployeeIds.length === activeEmployees.length && activeEmployees.length > 0;
+    const [empSearchTerm, setEmpSearchTerm] = useState("");
+    const filteredActiveEmployees = useMemo(() => {
+        if (!empSearchTerm.trim()) return activeEmployees;
+        const q = empSearchTerm.toLowerCase();
+        return activeEmployees.filter((e) => e.name.toLowerCase().includes(q) || e.department.toLowerCase().includes(q) || e.role.toLowerCase().includes(q));
+    }, [activeEmployees, empSearchTerm]);
+
 
     // ─── Filtered & paginated payslips ───────────────────────────
     const filteredPayslips = useMemo(() => {
@@ -199,7 +214,18 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
     const totalPages = Math.max(1, Math.ceil(filteredPayslips.length / pageSize));
     const paginatedPayslips = useMemo(() => filteredPayslips.slice((page - 1) * pageSize, page * pageSize), [filteredPayslips, page]);
 
-    // ─── Leave & loan helpers for final pay ──────────────────────
+    const eligibleFilteredEmployees = useMemo(() => filteredActiveEmployees.filter((e) => !payslips.some((p) => p.employeeId === e.id && p.periodStart === cutoffDates.start && p.periodEnd === cutoffDates.end)), [filteredActiveEmployees, payslips, cutoffDates]);
+    const allSelected = eligibleFilteredEmployees.length > 0 && eligibleFilteredEmployees.every((e) => selectedEmployeeIds.includes(e.id));
+    const toggleSelectAll = () => {
+        if (allSelected) {
+            const eligibleIds = new Set(eligibleFilteredEmployees.map((e) => e.id));
+            setSelectedEmployeeIds((prev) => prev.filter((id) => !eligibleIds.has(id)));
+        } else {
+            const newIds = new Set([...selectedEmployeeIds, ...eligibleFilteredEmployees.map((e) => e.id)]);
+            setSelectedEmployeeIds(Array.from(newIds));
+        }
+    };
+
     const getLeaveBalance = (empId: string): number => {
         const year = new Date().getFullYear();
         const bals = getEmployeeBalances(empId, year);
@@ -209,16 +235,6 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
     const getLoanBalance = (empId: string): number => {
         const loans = getActiveByEmployee(empId);
         return loans.reduce((sum, l) => sum + l.remainingBalance, 0);
-    };
-    const toggleSelectAll = () => {
-        if (allSelected) setSelectedEmployeeIds([]);
-        else {
-            // Exclude employees who already have payslips for the selected period
-            const eligible = activeEmployees.filter((e) =>
-                !payslips.some((p) => p.employeeId === e.id && p.periodStart === cutoffDates.start && p.periodEnd === cutoffDates.end)
-            );
-            setSelectedEmployeeIds(eligible.map((e) => e.id));
-        }
     };
     const toggleEmployee = (empId: string) => { setSelectedEmployeeIds((prev) => prev.includes(empId) ? prev.filter((id) => id !== empId) : [...prev, empId]); };
 
@@ -231,8 +247,9 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
 
     // ─── Issue handler ────────────────────────────────────────────
     const handleIssue = () => {
-        const issuanceDateLocked = isRunLocked(formIssuedAt);
-        if (issuanceDateLocked) { toast.error("Selected issuance date belongs to a locked run."); return; }
+        const periodKey = `${cutoffDates.start}/${cutoffDates.end}`;
+        const cutoffLocked = isRunLocked(periodKey);
+        if (cutoffLocked) { toast.error("This cutoff period is locked. Unlock the payroll run first to issue new payslips."); return; }
         if (selectedEmployeeIds.length === 0 || !cutoffDates.start || !cutoffDates.end) { toast.error("Please select at least one employee and set cutoff dates"); return; }
         if (cutoffDates.start > cutoffDates.end) { toast.error("Cutoff start date must be before end date"); return; }
         const allowancesVal = Number(formAllowances) || 0;
@@ -245,153 +262,153 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
         if (nightDiffVal < 0) { toast.error("Night differential hours cannot be negative"); return; }
 
         try {
-        let successCount = 0;
-        let totalLoanDeductions = 0;
-        let skippedDuplicates = 0;
+            let successCount = 0;
+            let totalLoanDeductions = 0;
+            let skippedDuplicates = 0;
 
-        selectedEmployeeIds.forEach((empId) => {
-            const emp = employees.find((e) => e.id === empId);
-            if (!emp) return;
+            selectedEmployeeIds.forEach((empId) => {
+                const emp = employees.find((e) => e.id === empId);
+                if (!emp) return;
 
-            // Duplicate guard: skip if payslip already exists for this employee + period
-            const existingPayslip = payslips.find(
-                (p) => p.employeeId === empId && p.periodStart === cutoffDates.start && p.periodEnd === cutoffDates.end
-            );
-            if (existingPayslip) { skippedDuplicates++; return; }
+                // Duplicate guard: skip if payslip already exists for this employee + period
+                const existingPayslip = payslips.find(
+                    (p) => p.employeeId === empId && p.periodStart === cutoffDates.start && p.periodEnd === cutoffDates.end
+                );
+                if (existingPayslip) { skippedDuplicates++; return; }
 
-            const freq = emp.payFrequency || paySchedule.defaultFrequency;
-            let grossPay: number;
-            if (freq === "semi_monthly") grossPay = Math.round(emp.salary / 2);
-            else if (freq === "bi_weekly") grossPay = Math.round((emp.salary * 12) / 26);
-            else if (freq === "weekly") grossPay = Math.round((emp.salary * 12) / 52);
-            else grossPay = emp.salary;
+                const freq = emp.payFrequency || paySchedule.defaultFrequency;
+                let grossPay: number;
+                if (freq === "semi_monthly") grossPay = Math.round(emp.salary / 2);
+                else if (freq === "bi_weekly") grossPay = Math.round((emp.salary * 12) / 26);
+                else if (freq === "weekly") grossPay = Math.round((emp.salary * 12) / 52);
+                else grossPay = emp.salary;
 
-            const phDeductions = computeAllPHDeductions(emp.salary);
-            let govMultiplier = 1;
-            if (freq === "semi_monthly") {
-                if (paySchedule.deductGovFrom === "both") govMultiplier = 0.5;
-                else if (paySchedule.deductGovFrom === "first" && cutoff !== "first") govMultiplier = 0;
-                else if (paySchedule.deductGovFrom === "second" && cutoff !== "second") govMultiplier = 0;
-            }
+                const phDeductions = computeAllPHDeductions(emp.salary);
+                let govMultiplier = 1;
+                if (freq === "semi_monthly") {
+                    if (paySchedule.deductGovFrom === "both") govMultiplier = 0.5;
+                    else if (paySchedule.deductGovFrom === "first" && cutoff !== "first") govMultiplier = 0;
+                    else if (paySchedule.deductGovFrom === "second" && cutoff !== "second") govMultiplier = 0;
+                }
 
-            const empLoans = getActiveByEmployee(empId);
-            const rawLoanDeduction = empLoans.reduce((sum, l) => sum + Math.min(l.monthlyDeduction, l.remainingBalance), 0);
-            // Enforce 30% deduction cap per DB schema (loans.deduction_cap_percent DEFAULT 30)
-            const empLoanDeduction = Math.min(rawLoanDeduction, Math.round(grossPay * 0.30));
-            totalLoanDeductions += empLoanDeduction;
+                const empLoans = getActiveByEmployee(empId);
+                const rawLoanDeduction = empLoans.reduce((sum, l) => sum + Math.min(l.monthlyDeduction, l.remainingBalance), 0);
+                // Enforce 30% deduction cap per DB schema (loans.deduction_cap_percent DEFAULT 30)
+                const empLoanDeduction = Math.min(rawLoanDeduction, Math.round(grossPay * 0.30));
+                totalLoanDeductions += empLoanDeduction;
 
-            const allowances = allowancesVal;
-            const otherDed = otherDedVal;
-            const otHours = otHoursVal;
-            const nightDiffHours = nightDiffVal;
-            
-            // Apply deduction overrides for each government contribution (Philippine Standard)
-            // Priority: per-employee override > global default > auto (standard PH calc)
-            const computeDeduction = (type: DeductionType, autoValue: number, basis: number = grossPay): number => {
-                const override = getDeductionOverride(empId, type);
-                const globalDef = getGlobalDefault(type);
+                const allowances = allowancesVal;
+                const otherDed = otherDedVal;
+                const otHours = otHoursVal;
+                const nightDiffHours = nightDiffVal;
 
-                // If the global default has this type disabled, return 0 (admin toggled it off)
-                if (globalDef && !globalDef.enabled) return 0;
+                // Apply deduction overrides for each government contribution (Philippine Standard)
+                // Priority: per-employee override > global default > auto (standard PH calc)
+                const computeDeduction = (type: DeductionType, autoValue: number, basis: number = grossPay): number => {
+                    const override = getDeductionOverride(empId, type);
+                    const globalDef = getGlobalDefault(type);
 
-                // Use per-employee override if set, otherwise fall back to global default
-                const effective = override ?? (globalDef && globalDef.mode !== "auto" ? { mode: globalDef.mode, percentage: globalDef.percentage, fixedAmount: globalDef.fixedAmount } : null);
+                    // If the global default has this type disabled, return 0 (admin toggled it off)
+                    if (globalDef && !globalDef.enabled) return 0;
 
-                if (!effective || effective.mode === "auto") {
+                    // Use per-employee override if set, otherwise fall back to global default
+                    const effective = override ?? (globalDef && globalDef.mode !== "auto" ? { mode: globalDef.mode, percentage: globalDef.percentage, fixedAmount: globalDef.fixedAmount } : null);
+
+                    if (!effective || effective.mode === "auto") {
+                        return Math.round(autoValue * govMultiplier);
+                    }
+                    if (effective.mode === "exempt") {
+                        return 0;
+                    }
+                    if (effective.mode === "percentage" && effective.percentage !== undefined) {
+                        return Math.round(basis * (effective.percentage / 100) * govMultiplier);
+                    }
+                    if (effective.mode === "fixed" && effective.fixedAmount !== undefined) {
+                        return Math.round(effective.fixedAmount * govMultiplier);
+                    }
                     return Math.round(autoValue * govMultiplier);
-                }
-                if (effective.mode === "exempt") {
-                    return 0;
-                }
-                if (effective.mode === "percentage" && effective.percentage !== undefined) {
-                    return Math.round(basis * (effective.percentage / 100) * govMultiplier);
-                }
-                if (effective.mode === "fixed" && effective.fixedAmount !== undefined) {
-                    return Math.round(effective.fixedAmount * govMultiplier);
-                }
-                return Math.round(autoValue * govMultiplier);
-            };
+                };
 
-            const sss = emp.deductionExempt ? 0 : computeDeduction("sss", phDeductions.sss);
-            const ph = emp.deductionExempt ? 0 : computeDeduction("philhealth", phDeductions.philHealth);
-            const pi = emp.deductionExempt ? 0 : computeDeduction("pagibig", phDeductions.pagIBIG);
-            
-            // BIR tax is calculated on taxable income (gross minus gov contributions)
-            const taxableIncome = Math.max(0, grossPay - sss - ph - pi);
-            const birOverride = getDeductionOverride(empId, "bir");
-            const birGlobal = getGlobalDefault("bir");
-            let tax: number;
-            if (emp.deductionExempt || (birGlobal && !birGlobal.enabled)) {
-                tax = 0;
-            } else {
-                const birEffective = birOverride ?? (birGlobal && birGlobal.mode !== "auto" ? { mode: birGlobal.mode, percentage: birGlobal.percentage, fixedAmount: birGlobal.fixedAmount } : null);
-                if (!birEffective || birEffective.mode === "auto") {
-                    tax = Math.round(phDeductions.withholdingTax * govMultiplier);
-                } else if (birEffective.mode === "exempt") {
+                const sss = emp.deductionExempt ? 0 : computeDeduction("sss", phDeductions.sss);
+                const ph = emp.deductionExempt ? 0 : computeDeduction("philhealth", phDeductions.philHealth);
+                const pi = emp.deductionExempt ? 0 : computeDeduction("pagibig", phDeductions.pagIBIG);
+
+                // BIR tax is calculated on taxable income (gross minus gov contributions)
+                const taxableIncome = Math.max(0, grossPay - sss - ph - pi);
+                const birOverride = getDeductionOverride(empId, "bir");
+                const birGlobal = getGlobalDefault("bir");
+                let tax: number;
+                if (emp.deductionExempt || (birGlobal && !birGlobal.enabled)) {
                     tax = 0;
-                } else if (birEffective.mode === "percentage" && birEffective.percentage !== undefined) {
-                    tax = Math.round(taxableIncome * (birEffective.percentage / 100));
-                } else if (birEffective.mode === "fixed" && birEffective.fixedAmount !== undefined) {
-                    tax = Math.round(birEffective.fixedAmount * govMultiplier);
                 } else {
-                    tax = Math.round(phDeductions.withholdingTax * govMultiplier);
+                    const birEffective = birOverride ?? (birGlobal && birGlobal.mode !== "auto" ? { mode: birGlobal.mode, percentage: birGlobal.percentage, fixedAmount: birGlobal.fixedAmount } : null);
+                    if (!birEffective || birEffective.mode === "auto") {
+                        tax = Math.round(phDeductions.withholdingTax * govMultiplier);
+                    } else if (birEffective.mode === "exempt") {
+                        tax = 0;
+                    } else if (birEffective.mode === "percentage" && birEffective.percentage !== undefined) {
+                        tax = Math.round(taxableIncome * (birEffective.percentage / 100));
+                    } else if (birEffective.mode === "fixed" && birEffective.fixedAmount !== undefined) {
+                        tax = Math.round(birEffective.fixedAmount * govMultiplier);
+                    } else {
+                        tax = Math.round(phDeductions.withholdingTax * govMultiplier);
+                    }
                 }
-            }
-            
-            const totalGovDed = sss + ph + pi + tax;
 
-            const dailyRate = Math.round(emp.salary / 22);
+                const totalGovDed = sss + ph + pi + tax;
 
-            // ─── Custom deduction templates ───────────────────────────────────
-            // Skipped entirely if employee is deduction-exempt (contract-based, etc.)
-            const workDaysPerPeriod = emp.workDays?.length
-                ? Math.round(emp.workDays.length * (22 / 5))
-                : 22;
-            const customItems = emp.deductionExempt
-                ? []
-                : computeDeductionsForEmployee(empId, emp.salary, workDaysPerPeriod);
-            const customDedTotal = customItems
-                .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "deduction")
-                .reduce((sum, item) => sum + item.amount, 0);
-            const customAllowanceTotal = customItems
-                .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "allowance")
-                .reduce((sum, item) => sum + item.amount, 0);
+                const dailyRate = Math.round(emp.salary / 22);
 
-            const hourlyRate = Math.round(dailyRate / 8);
-            const otPay = Math.round(otHours * hourlyRate * 1.25); // PH Labor Code: OT at 125%
-            const nightDiffPay = Math.round(nightDiffHours * hourlyRate * 0.10); // PH: +10% for 10PM-6AM
-            const periodHolidays = holidays.filter((h) => h.date >= cutoffDates.start && h.date <= cutoffDates.end);
-            let holidayPaySupp = 0;
-            periodHolidays.forEach((hol) => {
-                const log = attendanceLogs.find((l) => l.employeeId === empId && l.date === hol.date);
-                const worked = log?.status === "present";
-                if (hol.type === "regular") { if (worked) holidayPaySupp += dailyRate; }
-                else { if (worked) holidayPaySupp += Math.round(dailyRate * (PH_HOLIDAY_MULTIPLIERS.special_holiday.worked - 1)); else holidayPaySupp -= dailyRate; }
+                // ─── Custom deduction templates ───────────────────────────────────
+                // Skipped entirely if employee is deduction-exempt (contract-based, etc.)
+                const workDaysPerPeriod = emp.workDays?.length
+                    ? Math.round(emp.workDays.length * (22 / 5))
+                    : 22;
+                const customItems = emp.deductionExempt
+                    ? []
+                    : computeDeductionsForEmployee(empId, emp.salary, workDaysPerPeriod);
+                const customDedTotal = customItems
+                    .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "deduction")
+                    .reduce((sum, item) => sum + item.amount, 0);
+                const customAllowanceTotal = customItems
+                    .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "allowance")
+                    .reduce((sum, item) => sum + item.amount, 0);
+
+                const hourlyRate = Math.round(dailyRate / 8);
+                const otPay = Math.round(otHours * hourlyRate * 1.25); // PH Labor Code: OT at 125%
+                const nightDiffPay = Math.round(nightDiffHours * hourlyRate * 0.10); // PH: +10% for 10PM-6AM
+                const periodHolidays = holidays.filter((h) => h.date >= cutoffDates.start && h.date <= cutoffDates.end);
+                let holidayPaySupp = 0;
+                periodHolidays.forEach((hol) => {
+                    const log = attendanceLogs.find((l) => l.employeeId === empId && l.date === hol.date);
+                    const worked = log?.status === "present";
+                    if (hol.type === "regular") { if (worked) holidayPaySupp += dailyRate; }
+                    else { if (worked) holidayPaySupp += Math.round(dailyRate * (PH_HOLIDAY_MULTIPLIERS.special_holiday.worked - 1)); else holidayPaySupp -= dailyRate; }
+                });
+
+                const netPay = grossPay + allowances + holidayPaySupp + otPay + nightDiffPay + customAllowanceTotal - totalGovDed - otherDed - empLoanDeduction - customDedTotal;
+                if (netPay <= 0) { toast.error(`Skipped ${emp.name}: Net pay would be ≤ 0`); return; }
+
+                issuePayslip({
+                    employeeId: empId, periodStart: cutoffDates.start, periodEnd: cutoffDates.end, payFrequency: freq, grossPay,
+                    allowances: allowances + otPay + nightDiffPay,
+                    sssDeduction: sss, philhealthDeduction: ph, pagibigDeduction: pi, taxDeduction: tax,
+                    otherDeductions: otherDed, loanDeduction: empLoanDeduction,
+                    customDeductions: customDedTotal,
+                    holidayPay: holidayPaySupp !== 0 ? holidayPaySupp : undefined, netPay,
+                    notes: formNotes || [otHours > 0 ? `OT: ${otHours}hrs (\u20B1${otPay})` : "", nightDiffHours > 0 ? `ND: ${nightDiffHours}hrs (\u20B1${nightDiffPay})` : ""].filter(Boolean).join(", ") || undefined, issuedAt: formIssuedAt,
+                });
+
+                const actualPayslipId = usePayrollStore.getState().payslips.filter((p) => p.employeeId === empId).sort((a, b) => b.id.localeCompare(a.id))[0]?.id ?? `PS-fallback-${Date.now()}`;
+                empLoans.forEach((loan) => { const amt = Math.min(loan.monthlyDeduction, loan.remainingBalance); if (amt > 0) recordDeduction(loan.id, actualPayslipId, amt); });
+                successCount++;
             });
 
-            const netPay = grossPay + allowances + holidayPaySupp + otPay + nightDiffPay + customAllowanceTotal - totalGovDed - otherDed - empLoanDeduction - customDedTotal;
-            if (netPay <= 0) { toast.error(`Skipped ${emp.name}: Net pay would be ≤ 0`); return; }
-
-            issuePayslip({
-                employeeId: empId, periodStart: cutoffDates.start, periodEnd: cutoffDates.end, payFrequency: freq, grossPay,
-                allowances: allowances + otPay + nightDiffPay,
-                sssDeduction: sss, philhealthDeduction: ph, pagibigDeduction: pi, taxDeduction: tax,
-                otherDeductions: otherDed, loanDeduction: empLoanDeduction,
-                customDeductions: customDedTotal,
-                holidayPay: holidayPaySupp !== 0 ? holidayPaySupp : undefined, netPay,
-                notes: formNotes || [otHours > 0 ? `OT: ${otHours}hrs (\u20B1${otPay})` : "", nightDiffHours > 0 ? `ND: ${nightDiffHours}hrs (\u20B1${nightDiffPay})` : ""].filter(Boolean).join(", ") || undefined, issuedAt: formIssuedAt,
-            });
-
-            const actualPayslipId = usePayrollStore.getState().payslips.filter((p) => p.employeeId === empId).sort((a, b) => b.id.localeCompare(a.id))[0]?.id ?? `PS-fallback-${Date.now()}`;
-            empLoans.forEach((loan) => { const amt = Math.min(loan.monthlyDeduction, loan.remainingBalance); if (amt > 0) recordDeduction(loan.id, actualPayslipId, amt); });
-            successCount++;
-        });
-
-        const loanMsg = totalLoanDeductions > 0 ? ` (incl. ${formatCurrency(totalLoanDeductions)} total loan deductions)` : "";
-        if (skippedDuplicates > 0) toast.warning(`${skippedDuplicates} employee${skippedDuplicates > 1 ? "s" : ""} already had payslips for this period — skipped.`);
-        if (successCount > 0) toast.success(`Issued ${successCount} payslip${successCount > 1 ? "s" : ""}${loanMsg}`);
-        else if (skippedDuplicates > 0) toast.info("No new payslips issued — all selected employees already have payslips for this period.");
-        setOpen(false); setSelectedEmployeeIds([]); setFormAllowances("0"); setFormOtherDeductions("0"); setFormOTHours("0"); setFormNightDiffHours("0"); setFormNotes(""); setFormIssuedAt(format(new Date(), "yyyy-MM-dd"));
+            const loanMsg = totalLoanDeductions > 0 ? ` (incl. ${formatCurrency(totalLoanDeductions)} total loan deductions)` : "";
+            if (skippedDuplicates > 0) toast.warning(`${skippedDuplicates} employee${skippedDuplicates > 1 ? "s" : ""} already had payslips for this period — skipped.`);
+            if (successCount > 0) toast.success(`Issued ${successCount} payslip${successCount > 1 ? "s" : ""}${loanMsg}`);
+            else if (skippedDuplicates > 0) toast.info("No new payslips issued — all selected employees already have payslips for this period.");
+            setOpen(false); setSelectedEmployeeIds([]); setFormAllowances("0"); setFormOtherDeductions("0"); setFormOTHours("0"); setFormNightDiffHours("0"); setFormNotes(""); setFormIssuedAt(format(new Date(), "yyyy-MM-dd")); setEmpSearchTerm("");
         } catch (err) {
             toast.error(`Payslip issuance failed: ${err instanceof Error ? err.message : "Unknown error"}`);
         }
@@ -408,18 +425,28 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
     }, [generate13thMonth]);
 
     const payrollRuns = useMemo(() => {
-        const grouped: Record<string, { date: string; count: number; totalNet: number; totalGross: number; published: number }> = {};
-        payslips.forEach((p) => {
-            const key = p.issuedAt;
-            if (!grouped[key]) grouped[key] = { date: key, count: 0, totalNet: 0, totalGross: 0, published: 0 };
-            grouped[key].count++; grouped[key].totalNet += p.netPay; grouped[key].totalGross += (p.grossPay || 0);
-            if (p.status === "published" || p.status === "signed") grouped[key].published++;
-        });
-        return Object.values(grouped).sort((a, b) => b.date.localeCompare(a.date));
-    }, [payslips]);
+        return runs.map((r) => {
+            const runPayslips = payslips.filter((p) => (r.payslipIds || []).includes(p.id));
+            return {
+                date: r.periodLabel,
+                runId: r.id,
+                count: runPayslips.length,
+                totalNet: runPayslips.reduce((sum, p) => sum + p.netPay, 0),
+                totalGross: runPayslips.reduce((sum, p) => sum + (p.grossPay || 0), 0),
+                published: runPayslips.filter((p) => p.status === "published" || p.status === "signed").length,
+                draftCount: runPayslips.filter((p) => p.status === "draft").length,
+                signedCount: runPayslips.filter((p) => p.status === "signed" || p.status === "paid").length,
+                allSigned: runPayslips.length > 0 && runPayslips.every((p) => p.status === "signed" || p.status === "paid"),
+            };
+        }).sort((a, b) => b.date.localeCompare(a.date));
+    }, [runs, payslips]);
 
     const isRunLocked = (runDate: string) => runs.find((r) => r.periodLabel === runDate)?.locked ?? false;
-    const isTodayLocked = isRunLocked(formIssuedAt);
+    const isCutoffPeriodLocked = useMemo(() => {
+        if (!cutoffDates.start || !cutoffDates.end) return false;
+        const periodKey = `${cutoffDates.start}/${cutoffDates.end}`;
+        return runs.some((r) => r.locked && r.periodLabel === periodKey);
+    }, [runs, cutoffDates]);
     const viewedPayslip = viewSlip ? payslips.find((p) => p.id === viewSlip) : null;
 
     const viewTitle = mode === "admin" ? "Payroll Management" : mode === "finance" ? "Payroll & Finance" : "Payroll Administration";
@@ -434,15 +461,16 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
             p.status === "draft" &&
             (p.sssDeduction || 0) + (p.philhealthDeduction || 0) + (p.pagibigDeduction || 0) + (p.taxDeduction || 0) === 0
         ).length
-    , [filteredPayslips]);
+        , [filteredPayslips]);
 
     // ─── Status summary counts ───────────────────────────────────
     const statusCounts = useMemo(() => {
-        const counts = { draft: 0, published: 0, signed: 0, publishedUnsigned: 0 };
+        const counts = { draft: 0, published: 0, signed: 0, paid: 0, publishedUnsigned: 0 };
         payslips.forEach((p) => {
             if (p.status === "draft") counts.draft++;
             if (p.status === "published") counts.published++;
             if (p.status === "signed") counts.signed++;
+            if (p.status === "paid") counts.paid++;
             if (p.status === "published" && !p.signedAt) counts.publishedUnsigned++;
         });
         return counts;
@@ -452,34 +480,34 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
     // Use store-first pattern (matching single-action buttons).
     // The write-through subscriber in sync.service.ts persists to Supabase.
     const handleBatchPublish = useCallback(() => {
-        const draftSlips = filteredPayslips.filter((p) => p.status === "draft");
-        if (draftSlips.length === 0) { toast.error("No draft payslips to publish"); return; }
+        const draftSlips = filteredPayslips.filter((p) => p.status === "draft" && isPayslipRunLocked(p.id));
+        if (draftSlips.length === 0) { toast.error("No draft payslips in a locked payroll run to publish"); return; }
         setBatchProcessing(true);
         try {
-        draftSlips.forEach((ps) => {
-            publishPayslip(ps.id);
-            useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payroll_published", performedBy: currentUser.id });
-            dispatchNotification("payslip_published", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
-        });
-        toast.success(`Published ${draftSlips.length} payslip${draftSlips.length > 1 ? "s" : ""}`);
+            draftSlips.forEach((ps) => {
+                publishPayslip(ps.id);
+                useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payroll_published", performedBy: currentUser.id });
+                dispatchNotification("payslip_published", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
+            });
+            toast.success(`Published ${draftSlips.length} payslip${draftSlips.length > 1 ? "s" : ""}`);
         } catch (err) {
             toast.error(`Failed to publish payslips: ${err instanceof Error ? err.message : "Unknown error"}`);
         } finally {
             setBatchProcessing(false);
         }
-    }, [filteredPayslips, publishPayslip, currentUser.id]);
+    }, [filteredPayslips, publishPayslip, currentUser.id, isPayslipRunLocked]);
 
     const handleBatchRecordPayment = useCallback(() => {
         const signedSlips = filteredPayslips.filter((p) => p.status === "signed");
         if (signedSlips.length === 0) { toast.error("No signed payslips to record payment for"); return; }
         setBatchProcessing(true);
         try {
-        signedSlips.forEach((ps) => {
-            recordPayment(ps.id, "bank_transfer", `BATCH-REF-${Date.now()}-${ps.id}`);
-            useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payment_recorded", performedBy: currentUser.id });
-            dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
-        });
-        toast.success(`Recorded payment for ${signedSlips.length} payslip${signedSlips.length > 1 ? "s" : ""}`);
+            signedSlips.forEach((ps) => {
+                recordPayment(ps.id, "bank_transfer", `BATCH-REF-${Date.now()}-${ps.id}`);
+                useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payment_recorded", performedBy: currentUser.id });
+                dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
+            });
+            toast.success(`Recorded payment for ${signedSlips.length} payslip${signedSlips.length > 1 ? "s" : ""}`);
         } catch (err) {
             toast.error(`Failed to record payments: ${err instanceof Error ? err.message : "Unknown error"}`);
         } finally {
@@ -494,76 +522,76 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
         if (eligible.length === 0) { toast.error("No draft payslips to recompute"); return; }
         setBatchProcessing(true);
         try {
-        let updated = 0;
-        eligible.forEach((ps) => {
-            const emp = employees.find((e) => e.id === ps.employeeId);
-            if (!emp) return;
-            const phDeductions = computeAllPHDeductions(emp.salary);
+            let updated = 0;
+            eligible.forEach((ps) => {
+                const emp = employees.find((e) => e.id === ps.employeeId);
+                if (!emp) return;
+                const phDeductions = computeAllPHDeductions(emp.salary);
 
-            // Re-use the same override/global default priority chain as handleIssue
-            const computeDeduction = (type: DeductionType, autoValue: number, basis: number = ps.grossPay): number => {
-                const override = getDeductionOverride(ps.employeeId, type);
-                const globalDef = getGlobalDefault(type);
-                if (globalDef && !globalDef.enabled) return 0;
-                const effective = override ?? (globalDef && globalDef.mode !== "auto" ? { mode: globalDef.mode, percentage: globalDef.percentage, fixedAmount: globalDef.fixedAmount } : null);
-                if (!effective || effective.mode === "auto") return Math.round(autoValue);
-                if (effective.mode === "exempt") return 0;
-                if (effective.mode === "percentage" && effective.percentage !== undefined) return Math.round(basis * (effective.percentage / 100));
-                if (effective.mode === "fixed" && effective.fixedAmount !== undefined) return Math.round(effective.fixedAmount);
-                return Math.round(autoValue);
-            };
+                // Re-use the same override/global default priority chain as handleIssue
+                const computeDeduction = (type: DeductionType, autoValue: number, basis: number = ps.grossPay): number => {
+                    const override = getDeductionOverride(ps.employeeId, type);
+                    const globalDef = getGlobalDefault(type);
+                    if (globalDef && !globalDef.enabled) return 0;
+                    const effective = override ?? (globalDef && globalDef.mode !== "auto" ? { mode: globalDef.mode, percentage: globalDef.percentage, fixedAmount: globalDef.fixedAmount } : null);
+                    if (!effective || effective.mode === "auto") return Math.round(autoValue);
+                    if (effective.mode === "exempt") return 0;
+                    if (effective.mode === "percentage" && effective.percentage !== undefined) return Math.round(basis * (effective.percentage / 100));
+                    if (effective.mode === "fixed" && effective.fixedAmount !== undefined) return Math.round(effective.fixedAmount);
+                    return Math.round(autoValue);
+                };
 
-            // Deduction-exempt employees (contract-based, etc.) get zero gov deductions
-            const sss = emp.deductionExempt ? 0 : computeDeduction("sss", phDeductions.sss);
-            const ph = emp.deductionExempt ? 0 : computeDeduction("philhealth", phDeductions.philHealth);
-            const pi = emp.deductionExempt ? 0 : computeDeduction("pagibig", phDeductions.pagIBIG);
-            const taxableIncome = Math.max(0, ps.grossPay - sss - ph - pi);
-            const birOverride = getDeductionOverride(ps.employeeId, "bir");
-            const birGlobal = getGlobalDefault("bir");
-            let tax: number;
-            if (emp.deductionExempt || (birGlobal && !birGlobal.enabled)) {
-                tax = 0;
-            } else {
-                const birEffective = birOverride ?? (birGlobal && birGlobal.mode !== "auto" ? { mode: birGlobal.mode, percentage: birGlobal.percentage, fixedAmount: birGlobal.fixedAmount } : null);
-                if (!birEffective || birEffective.mode === "auto") tax = Math.round(phDeductions.withholdingTax);
-                else if (birEffective.mode === "exempt") tax = 0;
-                else if (birEffective.mode === "percentage" && birEffective.percentage !== undefined) tax = Math.round(taxableIncome * (birEffective.percentage / 100));
-                else if (birEffective.mode === "fixed" && birEffective.fixedAmount !== undefined) tax = Math.round(birEffective.fixedAmount);
-                else tax = Math.round(phDeductions.withholdingTax);
-            }
+                // Deduction-exempt employees (contract-based, etc.) get zero gov deductions
+                const sss = emp.deductionExempt ? 0 : computeDeduction("sss", phDeductions.sss);
+                const ph = emp.deductionExempt ? 0 : computeDeduction("philhealth", phDeductions.philHealth);
+                const pi = emp.deductionExempt ? 0 : computeDeduction("pagibig", phDeductions.pagIBIG);
+                const taxableIncome = Math.max(0, ps.grossPay - sss - ph - pi);
+                const birOverride = getDeductionOverride(ps.employeeId, "bir");
+                const birGlobal = getGlobalDefault("bir");
+                let tax: number;
+                if (emp.deductionExempt || (birGlobal && !birGlobal.enabled)) {
+                    tax = 0;
+                } else {
+                    const birEffective = birOverride ?? (birGlobal && birGlobal.mode !== "auto" ? { mode: birGlobal.mode, percentage: birGlobal.percentage, fixedAmount: birGlobal.fixedAmount } : null);
+                    if (!birEffective || birEffective.mode === "auto") tax = Math.round(phDeductions.withholdingTax);
+                    else if (birEffective.mode === "exempt") tax = 0;
+                    else if (birEffective.mode === "percentage" && birEffective.percentage !== undefined) tax = Math.round(taxableIncome * (birEffective.percentage / 100));
+                    else if (birEffective.mode === "fixed" && birEffective.fixedAmount !== undefined) tax = Math.round(birEffective.fixedAmount);
+                    else tax = Math.round(phDeductions.withholdingTax);
+                }
 
-            const totalGovDed = sss + ph + pi + tax;
-            const oldGovDed = ps.sssDeduction + ps.philhealthDeduction + ps.pagibigDeduction + ps.taxDeduction;
+                const totalGovDed = sss + ph + pi + tax;
+                const oldGovDed = ps.sssDeduction + ps.philhealthDeduction + ps.pagibigDeduction + ps.taxDeduction;
 
-            // Re-apply custom deduction templates
-            const workDaysPerPeriod = emp.workDays?.length ? Math.round(emp.workDays.length * (22 / 5)) : 22;
-            const customItems = emp.deductionExempt
-                ? []
-                : computeDeductionsForEmployee(ps.employeeId, emp.salary, workDaysPerPeriod);
-            const newCustomDed = customItems
-                .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "deduction")
-                .reduce((sum, item) => sum + item.amount, 0);
-            const newCustomAllowance = customItems
-                .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "allowance")
-                .reduce((sum, item) => sum + item.amount, 0);
-            const oldCustomDed = ps.customDeductions ?? 0;
+                // Re-apply custom deduction templates
+                const workDaysPerPeriod = emp.workDays?.length ? Math.round(emp.workDays.length * (22 / 5)) : 22;
+                const customItems = emp.deductionExempt
+                    ? []
+                    : computeDeductionsForEmployee(ps.employeeId, emp.salary, workDaysPerPeriod);
+                const newCustomDed = customItems
+                    .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "deduction")
+                    .reduce((sum, item) => sum + item.amount, 0);
+                const newCustomAllowance = customItems
+                    .filter((item) => deductionTemplates.find((t) => t.id === item.templateId)?.type === "allowance")
+                    .reduce((sum, item) => sum + item.amount, 0);
+                const oldCustomDed = ps.customDeductions ?? 0;
 
-            // netPay diff: old total deductions - new total deductions + new allowances - old allowances
-            const netPayDiff = (oldGovDed - totalGovDed) + (oldCustomDed - newCustomDed) + newCustomAllowance;
-            const newNetPay = Math.max(0, ps.netPay + netPayDiff);
+                // netPay diff: old total deductions - new total deductions + new allowances - old allowances
+                const netPayDiff = (oldGovDed - totalGovDed) + (oldCustomDed - newCustomDed) + newCustomAllowance;
+                const newNetPay = Math.max(0, ps.netPay + netPayDiff);
 
-            updatePayslipFromServer({
-                id: ps.id,
-                sssDeduction: sss,
-                philhealthDeduction: ph,
-                pagibigDeduction: pi,
-                taxDeduction: tax,
-                customDeductions: newCustomDed,
-                netPay: newNetPay,
+                updatePayslipFromServer({
+                    id: ps.id,
+                    sssDeduction: sss,
+                    philhealthDeduction: ph,
+                    pagibigDeduction: pi,
+                    taxDeduction: tax,
+                    customDeductions: newCustomDed,
+                    netPay: newNetPay,
+                });
+                updated++;
             });
-            updated++;
-        });
-        toast.success(`Recomputed deductions for ${updated} payslip${updated > 1 ? "s" : ""}`);
+            toast.success(`Recomputed deductions for ${updated} payslip${updated > 1 ? "s" : ""}`);
         } catch (err) {
             toast.error(`Failed to recompute deductions: ${err instanceof Error ? err.message : "Unknown error"}`);
         } finally {
@@ -581,19 +609,19 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     {canReset && (
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <Button variant="outline" size="sm" className="gap-1.5 text-muted-foreground"><RotateCcw className="h-4 w-4" /> <span className="hidden sm:inline">Reset</span></Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader><AlertDialogTitle>Reset Payroll Data?</AlertDialogTitle>
-                                <AlertDialogDescription>This will clear all payroll data and restore it to the initial demo state.</AlertDialogDescription></AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleReset}>Reset</AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="outline" size="sm" className="gap-1.5 text-muted-foreground"><RotateCcw className="h-4 w-4" /> <span className="hidden sm:inline">Reset</span></Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader><AlertDialogTitle>Reset Payroll Data?</AlertDialogTitle>
+                                    <AlertDialogDescription>This will clear all payroll data and restore it to the initial demo state.</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleReset}>Reset</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                     )}
                     {canIssue && (<>
                         <Link href={`/${role}/payroll/settings`}>
@@ -605,170 +633,167 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                             <Gift className="h-4 w-4" /> <span className="hidden sm:inline">13th Month</span>
                         </Button>
                         <ExportBackupDialog module="payroll" />
-                        <Dialog open={open} onOpenChange={setOpen}>
+                        <ImportDataDialog module="payroll" onImportComplete={() => toast.success("Payroll data imported — refresh to see changes")} />
+                        <Dialog open={open} onOpenChange={(isOpen) => {
+                            if (isOpen && isCutoffPeriodLocked) {
+                                toast.error("This cutoff period is locked. Unlock the payroll run first to issue new payslips.");
+                                return;
+                            }
+                            setOpen(isOpen);
+                        }}>
                             <DialogTrigger asChild>
-                                <div className="inline-block" title={isTodayLocked ? "Run is locked" : ""}>
-                                    <Button className="gap-1.5" disabled={isTodayLocked}>
-                                        {isTodayLocked ? <Lock className="h-4 w-4" /> : <Plus className="h-4 w-4" />} Issue Payslip
-                                    </Button>
-                                </div>
+                                <Button className="gap-1.5">
+                                    {isCutoffPeriodLocked ? <Lock className="h-4 w-4" /> : <Plus className="h-4 w-4" />} Issue Payslip
+                                </Button>
                             </DialogTrigger>
-                            <DialogContent className="max-w-2xl flex flex-col max-h-[90vh]">
+                            <DialogContent className="!max-w-6xl w-[95vw] flex flex-col max-h-[90vh]">
                                 <DialogHeader className="shrink-0">
                                     <DialogTitle>Issue Payslip — Bulk</DialogTitle>
-                                    <p className="text-sm text-muted-foreground mt-1">Select employees to issue payslips.</p>
+                                    <p className="text-sm text-muted-foreground mt-1">Configure pay period, select employees, and issue payslips.</p>
                                 </DialogHeader>
-                                <div className="space-y-4 pt-1 overflow-y-auto pr-1">
-                                    {/* Pay Period */}
-                                    <div>
-                                        <label className="text-sm font-medium">Pay Period</label>
-                                        <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                                            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                                            <SelectContent>
-                                                {last6Months.map((m) => <SelectItem key={m} value={m}>{format(new Date(m + "-01"), "MMMM yyyy")}</SelectItem>)}
-                                            </SelectContent>
-                                        </Select>
-                                        {paySchedule.defaultFrequency === "semi_monthly" && (
-                                            <div className="grid grid-cols-2 gap-2 mt-2">
-                                                <Button type="button" size="sm" variant={cutoff === "first" ? "default" : "outline"} className="gap-1.5 justify-start" onClick={() => setCutoff("first")}>
-                                                    <CalendarDays className="h-3.5 w-3.5" /> 1st – {paySchedule.semiMonthlyFirstCutoff}th
-                                                </Button>
-                                                <Button type="button" size="sm" variant={cutoff === "second" ? "default" : "outline"} className="gap-1.5 justify-start" onClick={() => setCutoff("second")}>
-                                                    <CalendarDays className="h-3.5 w-3.5" /> {paySchedule.semiMonthlyFirstCutoff + 1}th – EOM
-                                                </Button>
-                                            </div>
-                                        )}
-                                        <p className="text-xs text-muted-foreground mt-1.5 font-mono bg-muted px-2 py-1 rounded">{cutoffDates.label}</p>
-                                    </div>
-                                    {/* Issue Date */}
-                                    <div><label className="text-sm font-medium">Issue Date</label><Input type="date" value={formIssuedAt} onChange={(e) => setFormIssuedAt(e.target.value)} className="mt-1" /></div>
-                                    {/* Employee Selection */}
-                                    <div>
-                                        <div className="flex items-center justify-between mb-2">
-                                            <label className="text-sm font-medium">Select Employees ({selectedEmployeeIds.length} selected)</label>
-                                            <Button type="button" variant="outline" size="sm" onClick={toggleSelectAll} className="h-8 text-xs">{allSelected ? "Deselect All" : "Select All"}</Button>
+                                <div className="grid grid-cols-2 gap-6 pt-1 overflow-y-auto pr-1">
+                                    {/* ── Left Column: Config ── */}
+                                    <div className="space-y-4">
+                                        {/* Pay Period */}
+                                        <div>
+                                            <label className="text-sm font-medium">Pay Period</label>
+                                            <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                                                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    {last6Months.map((m) => <SelectItem key={m} value={m}>{format(new Date(m + "-01"), "MMMM yyyy")}</SelectItem>)}
+                                                </SelectContent>
+                                            </Select>
+                                            {paySchedule.defaultFrequency === "semi_monthly" && (
+                                                <div className="grid grid-cols-2 gap-2 mt-2">
+                                                    <Button type="button" size="sm" variant={cutoff === "first" ? "default" : "outline"} className="gap-1.5 justify-start" onClick={() => setCutoff("first")}>
+                                                        <CalendarDays className="h-3.5 w-3.5" /> 1st – {paySchedule.semiMonthlyFirstCutoff}th
+                                                    </Button>
+                                                    <Button type="button" size="sm" variant={cutoff === "second" ? "default" : "outline"} className="gap-1.5 justify-start" onClick={() => setCutoff("second")}>
+                                                        <CalendarDays className="h-3.5 w-3.5" /> {paySchedule.semiMonthlyFirstCutoff + 1}th – EOM
+                                                    </Button>
+                                                </div>
+                                            )}
+                                            <p className="text-xs text-muted-foreground mt-1.5 font-mono bg-muted px-2 py-1 rounded">{cutoffDates.label}</p>
                                         </div>
-                                        <Card className="border border-border/50 max-h-[280px] overflow-y-auto">
-                                            <CardContent className="p-2 space-y-1">
-                                                {activeEmployees.length === 0 ? (
-                                                    <p className="text-sm text-muted-foreground text-center py-4">No active employees</p>
-                                                ) : activeEmployees.map((emp) => {
-                                                    const alreadyIssued = !!(cutoffDates.start && cutoffDates.end && payslips.some(
-                                                        (p) => p.employeeId === emp.id && p.periodStart === cutoffDates.start && p.periodEnd === cutoffDates.end
-                                                    ));
+                                        {/* Issue Date */}
+                                        <div><label className="text-sm font-medium">Issue Date</label><Input type="date" value={formIssuedAt} onChange={(e) => setFormIssuedAt(e.target.value)} className="mt-1" /></div>
+                                        {/* Allowances & Deductions */}
+                                        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                                            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-2">Applied to ALL selected</p>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div><label className="text-xs text-muted-foreground">Extra Allowances (+)</label><Input type="number" min={0} value={formAllowances} onChange={(e) => setFormAllowances(e.target.value)} className="mt-1 h-8 text-xs" placeholder="0" /></div>
+                                                <div><label className="text-xs text-muted-foreground">Other Deductions (−)</label><Input type="number" min={0} value={formOtherDeductions} onChange={(e) => setFormOtherDeductions(e.target.value)} className="mt-1 h-8 text-xs" placeholder="0" /></div>
+                                            </div>
+                                        </div>
+                                        {/* OT & Night Diff */}
+                                        <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                                            <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> Overtime & Night Differential</p>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div><label className="text-xs text-muted-foreground">OT Hours (125%)</label><Input type="number" min={0} step="0.5" value={formOTHours} onChange={(e) => setFormOTHours(e.target.value)} className="mt-1 h-8 text-xs" placeholder="0" /></div>
+                                                <div><label className="text-xs text-muted-foreground">Night Diff (+10%)</label><Input type="number" min={0} step="0.5" value={formNightDiffHours} onChange={(e) => setFormNightDiffHours(e.target.value)} className="mt-1 h-8 text-xs" placeholder="0" /></div>
+                                            </div>
+                                        </div>
+                                        {/* Gov't Deduction Quick Controls */}
+                                        <div className="border border-border/60 rounded-lg p-3 bg-muted/30">
+                                            <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+                                                <Percent className="h-3.5 w-3.5" /> Gov&apos;t Deduction Controls
+                                            </p>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {(["sss", "philhealth", "pagibig", "bir"] as DeductionType[]).map((type) => {
+                                                    const gd = getGlobalDefault(type);
+                                                    const labels: Record<DeductionType, string> = { sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IBIG", bir: "BIR Tax" };
+                                                    const modeLabel = !gd?.enabled ? "Disabled" : gd?.mode === "exempt" ? "Exempt (₱0)" : gd?.mode === "percentage" ? `${gd.percentage ?? 0}%` : gd?.mode === "fixed" ? `₱${gd.fixedAmount ?? 0}` : "Auto PH";
+                                                    const modeColor = !gd?.enabled || gd?.mode === "exempt" ? "text-red-500" : "text-emerald-600";
                                                     return (
-                                                    <div key={emp.id} onClick={() => !alreadyIssued && toggleEmployee(emp.id)} className={`flex items-center gap-3 p-2.5 rounded-lg transition-colors border border-transparent ${alreadyIssued ? "opacity-50 cursor-not-allowed bg-muted/30" : "hover:bg-muted/50 cursor-pointer hover:border-border/50"}`}>
-                                                        <Checkbox checked={selectedEmployeeIds.includes(emp.id)} onCheckedChange={() => !alreadyIssued && toggleEmployee(emp.id)} disabled={alreadyIssued} />
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="text-sm font-medium">{emp.name}{alreadyIssued && <span className="ml-2 text-xs text-amber-600 dark:text-amber-400 font-normal">✓ Already issued</span>}</p>
-                                                            <p className="text-xs text-muted-foreground">{emp.role} • {emp.department} • {formatCurrency(emp.salary)}/mo</p>
+                                                        <div key={type} className="flex items-center justify-between bg-background border border-border/50 rounded px-2 py-1.5">
+                                                            <div>
+                                                                <span className="text-xs font-medium">{labels[type]}</span>
+                                                                <p className={`text-[9px] leading-tight ${modeColor}`}>{modeLabel}</p>
+                                                            </div>
+                                                            <button type="button" onClick={() => updateGlobalDefault({ deductionType: type, enabled: !gd?.enabled, mode: gd?.mode ?? "auto" })} className={`relative w-8 h-4 rounded-full transition-colors ${gd?.enabled && gd?.mode !== "exempt" ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}>
+                                                                <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all duration-200 ${gd?.enabled && gd?.mode !== "exempt" ? "left-4" : "left-0.5"}`} />
+                                                            </button>
                                                         </div>
-                                                        <span className="text-xs font-mono bg-muted px-2 py-0.5 rounded">
-                                                            {(() => {
-                                                                const f = emp.payFrequency || paySchedule.defaultFrequency;
-                                                                if (f === "semi_monthly") return `≈${formatCurrency(Math.round(emp.salary / 2))}/cutoff`;
-                                                                if (f === "bi_weekly") return `≈${formatCurrency(Math.round((emp.salary * 12) / 26))}/period`;
-                                                                if (f === "weekly") return `≈${formatCurrency(Math.round((emp.salary * 12) / 52))}/wk`;
-                                                                return `${formatCurrency(emp.salary)}/mo`;
-                                                            })()}
-                                                        </span>
-                                                    </div>
                                                     );
                                                 })}
-                                            </CardContent>
-                                        </Card>
+                                            </div>
+                                            <p className="text-[10px] text-muted-foreground mt-1.5">Synced with Tax Settings tab</p>
+                                        </div>
+                                        {/* Notes */}
+                                        <div><label className="text-xs text-muted-foreground">Notes (optional)</label><Input value={formNotes} onChange={(e) => setFormNotes(e.target.value)} placeholder="e.g. bonus included" className="mt-1 h-8 text-xs" /></div>
+                                        {selectedEmployeeIds.length > 0 && (
+                                            <Card className="border border-emerald-500/30 bg-emerald-500/5">
+                                                <CardContent className="p-3">
+                                                    <p className="text-xs text-emerald-700 dark:text-emerald-300 leading-relaxed">
+                                                        <strong>Auto-computed per employee:</strong><br />
+                                                        • Gross from salary &middot; Gov&apos;t deductions &middot; Loans<br />
+                                                        • Holiday pay (DOLE) &middot; OT 125% &middot; Night Diff +10%
+                                                        {holidays.filter(h => h.date >= cutoffDates.start && h.date <= cutoffDates.end).length > 0 && (
+                                                            <span className="block mt-1 font-semibold text-amber-700 dark:text-amber-400">
+                                                                {holidays.filter(h => h.date >= cutoffDates.start && h.date <= cutoffDates.end).length} holiday(s) in this period
+                                                            </span>
+                                                        )}
+                                                    </p>
+                                                </CardContent>
+                                            </Card>
+                                        )}
+                                        {govDeductionsSkipped && selectedEmployeeIds.length > 0 && (
+                                            <Card className="border border-amber-400/50 bg-amber-50 dark:bg-amber-950/20">
+                                                <CardContent className="p-3 flex gap-2">
+                                                    <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                                                    <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed">
+                                                        <strong>Gov deductions ₱0 for this cutoff.</strong> Deductions apply on <strong>{paySchedule.deductGovFrom === "first" ? "1st" : "2nd"} cutoff</strong> only.
+                                                    </p>
+                                                </CardContent>
+                                            </Card>
+                                        )}
+                                        <Button onClick={handleIssue} className="w-full" disabled={selectedEmployeeIds.length === 0}>
+                                            Issue {selectedEmployeeIds.length} Payslip{selectedEmployeeIds.length !== 1 ? "s" : ""}
+                                        </Button>
                                     </div>
-                                    {/* Allowances & Deductions */}
-                                    <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
-                                        <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-2">Applied to ALL selected</p>
-                                        <div className="space-y-2">
-                                            <div><label className="text-xs text-muted-foreground">Extra Allowances (+)</label><Input type="number" min={0} value={formAllowances} onChange={(e) => setFormAllowances(e.target.value)} className="mt-1 h-9" placeholder="0" /></div>
-                                            <div><label className="text-xs text-muted-foreground">Other Deductions (−)</label><Input type="number" min={0} value={formOtherDeductions} onChange={(e) => setFormOtherDeductions(e.target.value)} className="mt-1 h-9" placeholder="0" /></div>
+                                    {/* ── Right Column: Employees ── */}
+                                    <div className="flex flex-col min-h-0">
+                                        {/* Employee Selection */}
+                                        <div className="flex flex-col flex-1 min-h-0">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <label className="text-sm font-medium">Select Employees ({selectedEmployeeIds.length} selected)</label>
+                                                <Button type="button" variant="outline" size="sm" onClick={toggleSelectAll} className="h-8 text-xs">{allSelected ? "Deselect All" : "Select All"}</Button>
+                                            </div>
+                                            <div className="relative mb-2">
+                                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                                                <Input placeholder="Search employees..." value={empSearchTerm} onChange={(e) => setEmpSearchTerm(e.target.value)} className="pl-8 h-8 text-xs" />
+                                            </div>
+                                            <Card className="border border-border/50 flex-1 overflow-y-auto">
+                                                <CardContent className="p-2 space-y-1">
+                                                    {filteredActiveEmployees.length === 0 ? (
+                                                        <p className="text-sm text-muted-foreground text-center py-4">{empSearchTerm ? "No employees match search" : "No active employees"}</p>
+                                                    ) : filteredActiveEmployees.map((emp) => {
+                                                        const alreadyIssued = !!(cutoffDates.start && cutoffDates.end && payslips.some(
+                                                            (p) => p.employeeId === emp.id && p.periodStart === cutoffDates.start && p.periodEnd === cutoffDates.end
+                                                        ));
+                                                        return (
+                                                            <div key={emp.id} onClick={() => !alreadyIssued && toggleEmployee(emp.id)} className={`flex items-center gap-3 p-2 rounded-lg transition-colors border border-transparent ${alreadyIssued ? "opacity-50 cursor-not-allowed bg-muted/30" : "hover:bg-muted/50 cursor-pointer hover:border-border/50"}`}>
+                                                                <Checkbox checked={selectedEmployeeIds.includes(emp.id)} onCheckedChange={() => !alreadyIssued && toggleEmployee(emp.id)} disabled={alreadyIssued} />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="text-sm font-medium">{emp.name}{alreadyIssued && <span className="ml-2 text-xs text-amber-600 dark:text-amber-400 font-normal">✓ Already issued</span>}</p>
+                                                                    <p className="text-xs text-muted-foreground">{emp.role} • {emp.department} • {formatCurrency(emp.salary)}/mo</p>
+                                                                </div>
+                                                                <span className="text-xs font-mono bg-muted px-2 py-0.5 rounded whitespace-nowrap">
+                                                                    {(() => {
+                                                                        const f = emp.payFrequency || paySchedule.defaultFrequency;
+                                                                        if (f === "semi_monthly") return `≈${formatCurrency(Math.round(emp.salary / 2))}/cutoff`;
+                                                                        if (f === "bi_weekly") return `≈${formatCurrency(Math.round((emp.salary * 12) / 26))}/period`;
+                                                                        if (f === "weekly") return `≈${formatCurrency(Math.round((emp.salary * 12) / 52))}/wk`;
+                                                                        return `${formatCurrency(emp.salary)}/mo`;
+                                                                    })()}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </CardContent>
+                                            </Card>
                                         </div>
                                     </div>
-                                    {/* OT & Night Diff */}
-                                    <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                                        <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 mb-2 flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> Overtime & Night Differential</p>
-                                        <div className="space-y-2">
-                                            <div><label className="text-xs text-muted-foreground">Overtime Hours (125% rate per PH Labor Code)</label><Input type="number" min={0} step="0.5" value={formOTHours} onChange={(e) => setFormOTHours(e.target.value)} className="mt-1 h-9" placeholder="0" /></div>
-                                            <div><label className="text-xs text-muted-foreground">Night Diff Hours (+10%, 10PM–6AM per Art. 86)</label><Input type="number" min={0} step="0.5" value={formNightDiffHours} onChange={(e) => setFormNightDiffHours(e.target.value)} className="mt-1 h-9" placeholder="0" /></div>
-                                        </div>
-                                    </div>
-                                    {/* Gov't Deduction Quick Controls */}
-                                    <div className="border border-border/60 rounded-lg p-3 bg-muted/30">
-                                        <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
-                                            <Percent className="h-3.5 w-3.5" /> Gov&apos;t Deduction Controls
-                                        </p>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {(["sss", "philhealth", "pagibig", "bir"] as DeductionType[]).map((type) => {
-                                                const gd = getGlobalDefault(type);
-                                                const labels: Record<DeductionType, string> = { sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IBIG", bir: "BIR Tax" };
-                                                const modeLabel = !gd?.enabled
-                                                    ? "Disabled"
-                                                    : gd?.mode === "exempt" ? "Exempt (₱0)"
-                                                    : gd?.mode === "percentage" ? `${gd.percentage ?? 0}% custom`
-                                                    : gd?.mode === "fixed" ? `₱${gd.fixedAmount ?? 0} fixed`
-                                                    : "Auto PH";
-                                                const modeColor = !gd?.enabled || gd?.mode === "exempt"
-                                                    ? "text-red-500"
-                                                    : "text-emerald-600";
-                                                return (
-                                                    <div key={type} className="flex items-center justify-between bg-background border border-border/50 rounded px-2.5 py-2">
-                                                        <div>
-                                                            <span className="text-xs font-medium">{labels[type]}</span>
-                                                            <p className={`text-[9px] leading-tight ${modeColor}`}>{modeLabel}</p>
-                                                        </div>
-                                                        <label className="flex items-center gap-1.5 cursor-pointer">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => updateGlobalDefault({ deductionType: type, enabled: !gd?.enabled, mode: gd?.mode ?? "auto" })}
-                                                                className={`relative w-9 h-5 rounded-full transition-colors ${gd?.enabled && gd?.mode !== "exempt" ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}
-                                                            >
-                                                                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all duration-200 ${gd?.enabled && gd?.mode !== "exempt" ? "left-4" : "left-0.5"}`} />
-                                                            </button>
-                                                        </label>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        <p className="text-[10px] text-muted-foreground mt-2">Synced with Tax Settings tab · changes apply company-wide</p>
-                                    </div>
-                                    {/* Notes */}
-                                    <div><label className="text-xs text-muted-foreground">Notes (optional)</label><Input value={formNotes} onChange={(e) => setFormNotes(e.target.value)} placeholder="e.g. bonus included" className="mt-1" /></div>
-                                    {selectedEmployeeIds.length > 0 && (
-                                        <Card className="border border-emerald-500/30 bg-emerald-500/5">
-                                            <CardContent className="p-3">
-                                                <p className="text-xs text-emerald-700 dark:text-emerald-300 leading-relaxed">
-                                                    <strong>Auto-computed per employee:</strong><br />
-                                                    • Monthly gross from directory salary<br />
-                                                    • PH Gov&apos;t deductions (SSS, PhilHealth, Pag-IBIG, Tax)<br />
-                                                    • Active loan deductions<br />
-                                                    • Holiday pay premiums (DOLE: 200% reg / 130% special)<br />
-                                                    • Overtime at 125% &amp; Night Diff at +10% (Art. 86-87)
-                                                    {holidays.filter(h => h.date >= cutoffDates.start && h.date <= cutoffDates.end).length > 0 && (
-                                                        <span className="block mt-1 font-semibold text-amber-700 dark:text-amber-400">
-                                                            {holidays.filter(h => h.date >= cutoffDates.start && h.date <= cutoffDates.end).length} holiday(s) in this period
-                                                        </span>
-                                                    )}
-                                                </p>
-                                            </CardContent>
-                                        </Card>
-                                    )}
-                                    {govDeductionsSkipped && selectedEmployeeIds.length > 0 && (
-                                        <Card className="border border-amber-400/50 bg-amber-50 dark:bg-amber-950/20">
-                                            <CardContent className="p-3 flex gap-2">
-                                                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                                                <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-                                                    <strong>Gov deductions will be ₱0 for this cutoff.</strong><br />
-                                                    Pay Schedule is set to deduct SSS/PhilHealth/Pag-IBIG/BIR on the <strong>{paySchedule.deductGovFrom === "first" ? "1st" : "2nd"} cutoff</strong> only.
-                                                    You&apos;re issuing the {cutoff === "first" ? "1st" : "2nd"} cutoff. Use the <strong>Apply Deductions</strong> batch action on the Payslips tab to force-apply deductions after issuance.
-                                                </p>
-                                            </CardContent>
-                                        </Card>
-                                    )}
-                                    <Button onClick={handleIssue} className="w-full" disabled={selectedEmployeeIds.length === 0}>
-                                        Issue {selectedEmployeeIds.length} Payslip{selectedEmployeeIds.length !== 1 ? "s" : ""}
-                                    </Button>
                                 </div>
                             </DialogContent>
                         </Dialog>
@@ -777,20 +802,25 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
             </div>
 
             {/* Tabs */}
-            <Tabs defaultValue="payslips">
+            <Tabs defaultValue="payroll">
                 <TabsList className="w-full justify-start">
-                    <TabsTrigger value="payslips">Payslips</TabsTrigger>
-                    <TabsTrigger value="runs">Payroll Runs</TabsTrigger>
-                    {canIssue && <TabsTrigger value="management" className="gap-1.5"><PenTool className="h-3.5 w-3.5" /> Management</TabsTrigger>}
+                    <TabsTrigger value="payroll" className="gap-1.5"><CreditCard className="h-3.5 w-3.5" /> Payroll</TabsTrigger>
                     {canIssue && <TabsTrigger value="deductions" className="gap-1.5"><Calculator className="h-3.5 w-3.5" /> Deduction/Allowance</TabsTrigger>}
                     {canIssue && <TabsTrigger value="settings" className="gap-1.5"><Settings className="h-3.5 w-3.5" /> Pay Schedule</TabsTrigger>}
                     {canIssue && <TabsTrigger value="tax-settings" className="gap-1.5"><Percent className="h-3.5 w-3.5" /> Tax Settings</TabsTrigger>}
                     {canIssue && <TabsTrigger value="gov-reports" className="gap-1.5"><Building2 className="h-3.5 w-3.5" /> Gov Reports</TabsTrigger>}
                 </TabsList>
 
-                {/* Payslips Tab */}
-                <TabsContent value="payslips" className="mt-4 space-y-3">
-                    {/* Status Summary Cards */}
+                {/* ═══ Unified Payroll Tab — 2-column layout ═══ */}
+                <TabsContent value="payroll" className="mt-4">
+                    <div className="flex gap-6">
+                        {/* ── Left: Step Content ── */}
+                        <div className="flex-1 min-w-0 space-y-4">
+
+                    {/* ═══ STEP: Issue Payslips — Payslips ═══ */}
+                    {(wizardStep === "issue" || wizardStep === "lock") && (
+                    <div className="space-y-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground" /> Payslips</h3>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {([
                             { key: "draft", label: "Draft", color: "text-amber-600 dark:text-amber-400" },
@@ -814,10 +844,10 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                 <AlertDialogTrigger asChild>
                                     <Button
                                         variant="outline" size="sm" className="h-8 text-xs gap-1.5 text-violet-600 border-violet-200 dark:border-violet-800 hover:bg-violet-50 dark:hover:bg-violet-950/30"
-                                        disabled={batchProcessing || statusCounts.draft === 0}
+                                        disabled={batchProcessing || filteredPayslips.filter((p) => p.status === "draft" && isPayslipRunLocked(p.id)).length === 0}
                                     >
                                         <Send className="h-3.5 w-3.5" />
-                                        Publish All Draft ({statusCounts.draft})
+                                        Publish All Draft ({filteredPayslips.filter((p) => p.status === "draft" && isPayslipRunLocked(p.id)).length})
                                     </Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
@@ -851,14 +881,6 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                     </AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
-                            <Button
-                                variant="outline" size="sm" className="h-8 text-xs gap-1.5 text-blue-600 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-950/30"
-                                disabled={batchProcessing || statusCounts.signed === 0}
-                                onClick={handleBatchRecordPayment}
-                            >
-                                <CreditCard className="h-3.5 w-3.5" />
-                                Record Payment ({statusCounts.signed} signed)
-                            </Button>
                             <Button
                                 variant="outline" size="sm" className="h-8 text-xs gap-1.5 text-emerald-600 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
                                 disabled={batchProcessing || statusCounts.draft === 0}
@@ -907,12 +929,11 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                                 <TableCell className="text-xs text-red-500">−₱{((ps.sssDeduction || 0) + (ps.philhealthDeduction || 0) + (ps.pagibigDeduction || 0) + (ps.taxDeduction || 0) + (ps.otherDeductions || 0) + (ps.loanDeduction || 0)).toLocaleString()}</TableCell>
                                                 <TableCell className="text-sm font-medium">₱{ps.netPay.toLocaleString()}</TableCell>
                                                 <TableCell>
-                                                    <Badge variant="secondary" className={`text-[10px] ${
-                                                        ps.status === "signed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
+                                                    <Badge variant="secondary" className={`text-[10px] ${ps.status === "signed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
                                                         ps.status === "published" ? "bg-violet-500/15 text-violet-700 dark:text-violet-400" :
-                                                        ps.status === "draft" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
-                                                        "bg-slate-500/15 text-slate-700 dark:text-slate-400"
-                                                    }`}>{ps.status}</Badge>
+                                                            ps.status === "draft" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+                                                                "bg-slate-500/15 text-slate-700 dark:text-slate-400"
+                                                        }`}>{ps.status}</Badge>
                                                 </TableCell>
                                                 <TableCell>
                                                     {ps.status === "signed" ? (
@@ -924,9 +945,13 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                                         <span className="text-[10px] text-red-600 dark:text-red-400 flex items-center gap-1 font-semibold" title="Employee must sign payslip (PH DOLE requirement)">
                                                             <FileSignature className="h-3 w-3" /> Awaiting Signature
                                                         </span>
+                                                    ) : ps.status === "draft" && isPayslipRunLocked(ps.id) ? (
+                                                        <span className="text-[10px] text-violet-600 dark:text-violet-400 flex items-center gap-1">
+                                                            <Send className="h-3 w-3" /> Ready to Publish
+                                                        </span>
                                                     ) : ps.status === "draft" ? (
-                                                        <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                                                            <Clock className="h-3 w-3" /> Pending Publish
+                                                        <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1" title="Payroll run must be locked before publishing">
+                                                            <Lock className="h-3 w-3" /> Run not locked
                                                         </span>
                                                     ) : (
                                                         <span className="text-[10px] text-muted-foreground">—</span>
@@ -936,27 +961,18 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                                     <div className="flex items-center gap-1">
                                                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewSlip(ps.id)}><Eye className="h-3.5 w-3.5" /></Button>
                                                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" title="Print" onClick={() => setPrintPayslipId(ps.id)}><Printer className="h-3.5 w-3.5" /></Button>
-                                                        {canIssue && ps.status === "draft" && (
-                                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-violet-600" title="Publish" onClick={() => {
-                                                                publishPayslip(ps.id);
-                                                                useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payroll_published", performedBy: currentUser.id });
-                                                                dispatchNotification("payslip_published", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
-                                                                toast.success("Published");
-                                                            }}><Send className="h-3.5 w-3.5" /></Button>
-                                                        )}
-                                                        {canIssue && ps.status === "signed" && (
-                                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600" title="Record Payment" onClick={() => {
-                                                                recordPayment(ps.id, "bank_transfer", `REF-${Date.now()}`);
-                                                                useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payment_recorded", performedBy: currentUser.id });
-                                                                dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
-                                                                toast.success("Payment recorded");
-                                                            }}><CreditCard className="h-3.5 w-3.5" /></Button>
-                                                        )}
-                                                        {canIssue && ps.status === "published" && !ps.signedAt && (
-                                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground/40 cursor-not-allowed" title="Awaiting employee signature" disabled>
-                                                                <CreditCard className="h-3.5 w-3.5" />
-                                                            </Button>
-                                                        )}
+                                                        {canIssue && ps.status === "draft" && (() => {
+                                                            const psRunLocked = isPayslipRunLocked(ps.id);
+                                                            return (
+                                                                <Button variant="ghost" size="icon" className={`h-7 w-7 ${psRunLocked ? "text-violet-600" : "text-muted-foreground/40 cursor-not-allowed"}`} title={psRunLocked ? "Publish" : "Lock the payroll run first"} disabled={!psRunLocked} onClick={() => {
+                                                                    if (!psRunLocked) return;
+                                                                    publishPayslip(ps.id);
+                                                                    useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payroll_published", performedBy: currentUser.id });
+                                                                    dispatchNotification("payslip_published", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
+                                                                    toast.success("Published");
+                                                                }}>{psRunLocked ? <Send className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}</Button>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </TableCell>
                                             </TableRow>
@@ -976,16 +992,206 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                             </div>
                         </div>
                     )}
-                </TabsContent>
+                    </div>
+                    )}
+                    {/* ═══ STEP: Publish ═══ */}
+                    {wizardStep === "publish" && (
+                    <div className="space-y-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-2"><Send className="h-4 w-4 text-muted-foreground" /> Publish Payslips</h3>
+                        <p className="text-xs text-muted-foreground">Publish draft payslips in locked runs to make them visible to employees for signing.</p>
+                        {/* Status cards */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            {([
+                                { key: "draft", label: "Draft", color: "text-amber-600 dark:text-amber-400" },
+                                { key: "published", label: "Published", color: "text-violet-600 dark:text-violet-400" },
+                                { key: "signed", label: "Signed", color: "text-emerald-600 dark:text-emerald-400" },
+                                { key: "paid", label: "Paid", color: "text-blue-600 dark:text-blue-400" },
+                            ] as const).map(({ key, label, color }) => (
+                                <Card key={key} className="border border-border/50">
+                                    <CardContent className="p-3 text-center">
+                                        <p className="text-[10px] uppercase font-semibold text-muted-foreground">{label}</p>
+                                        <p className={`text-xl font-bold mt-0.5 ${color}`}>{statusCounts[key] ?? 0}</p>
+                                    </CardContent>
+                                </Card>
+                            ))}
+                        </div>
+                        {/* Batch Publish */}
+                        {canIssue && (
+                            <div className="flex flex-wrap items-center gap-2 p-3 bg-muted/30 border border-border/50 rounded-lg">
+                                <AlertDialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}>
+                                    <AlertDialogTrigger asChild>
+                                        <Button
+                                            variant="outline" size="sm" className="h-8 text-xs gap-1.5 text-violet-600 border-violet-200 dark:border-violet-800 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                                            disabled={batchProcessing || filteredPayslips.filter((p) => p.status === "draft" && isPayslipRunLocked(p.id)).length === 0}
+                                        >
+                                            <Send className="h-3.5 w-3.5" />
+                                            Publish All Draft ({filteredPayslips.filter((p) => p.status === "draft" && isPayslipRunLocked(p.id)).length})
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Publish {statusCounts.draft} Draft Payslip{statusCounts.draft !== 1 ? "s" : ""}?</AlertDialogTitle>
+                                            <AlertDialogDescription asChild>
+                                                <div className="space-y-2 text-sm">
+                                                    <p>This will publish all draft payslips in locked runs and notify employees.</p>
+                                                    <p className="text-muted-foreground text-xs">Employees will be able to view their payslips after publishing.</p>
+                                                </div>
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction onClick={handleBatchPublish}>Publish All</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            </div>
+                        )}
+                        {/* Employee payslip list */}
+                        <Card className="border border-border/50">
+                            <CardContent className="p-0">
+                                <div className="overflow-x-auto">
+                                    <Table>
+                                        <TableHeader><TableRow>
+                                            <TableHead className="text-xs">Employee</TableHead>
+                                            <TableHead className="text-xs">Period</TableHead>
+                                            <TableHead className="text-xs">Net Pay</TableHead>
+                                            <TableHead className="text-xs">Status</TableHead>
+                                            <TableHead className="text-xs w-24"></TableHead>
+                                        </TableRow></TableHeader>
+                                        <TableBody>
+                                            {filteredPayslips.length === 0 ? (
+                                                <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">No payslips issued yet</TableCell></TableRow>
+                                            ) : filteredPayslips.map((ps) => (
+                                                <TableRow key={ps.id}>
+                                                    <TableCell className="text-sm font-medium">{getEmpName(ps.employeeId)}</TableCell>
+                                                    <TableCell className="text-xs text-muted-foreground">{ps.periodStart} – {ps.periodEnd}</TableCell>
+                                                    <TableCell className="text-sm font-medium">₱{ps.netPay.toLocaleString()}</TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="secondary" className={`text-[10px] ${ps.status === "published" ? "bg-violet-500/15 text-violet-700 dark:text-violet-400" : ps.status === "draft" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" : ps.status === "signed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-blue-500/15 text-blue-700 dark:text-blue-400"}`}>{ps.status}</Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {canIssue && ps.status === "draft" && isPayslipRunLocked(ps.id) ? (
+                                                            <Button variant="ghost" size="sm" className="h-7 text-xs text-violet-600 gap-1" onClick={() => {
+                                                                publishPayslip(ps.id);
+                                                                useAuditStore.getState().log({ entityType: "payslip", entityId: ps.id, action: "payroll_published", performedBy: currentUser.id });
+                                                                dispatchNotification("payslip_published", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, amount: formatCurrency(ps.netPay) }, ps.employeeId);
+                                                                toast.success("Published");
+                                                            }}><Send className="h-3 w-3" /> Publish</Button>
+                                                        ) : ps.status === "published" ? (
+                                                            <span className="text-[10px] text-violet-500 font-medium">✓ Published</span>
+                                                        ) : ps.status === "signed" || ps.status === "paid" ? (
+                                                            <span className="text-[10px] text-emerald-500 font-medium">✓ {ps.status}</span>
+                                                        ) : (
+                                                            <span className="text-[10px] text-muted-foreground">Run not locked</span>
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+                    )}
 
-                {/* Runs Tab */}
-                <TabsContent value="runs" className="mt-4">
+                    {/* ═══ STEP: E-Sign ═══ */}
+                    {wizardStep === "sign" && (
+                    <div className="space-y-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-2"><PenTool className="h-4 w-4 text-muted-foreground" /> Employee E-Sign</h3>
+                        <p className="text-xs text-muted-foreground">Waiting for employees to review and electronically sign their published payslips.</p>
+                        <div className="grid grid-cols-2 gap-2">
+                            <Card className="border border-border/50">
+                                <CardContent className="p-3 text-center">
+                                    <p className="text-[10px] uppercase font-semibold text-muted-foreground">Awaiting Signature</p>
+                                    <p className="text-xl font-bold mt-0.5 text-violet-600 dark:text-violet-400">{statusCounts.published ?? 0}</p>
+                                </CardContent>
+                            </Card>
+                            <Card className="border border-border/50">
+                                <CardContent className="p-3 text-center">
+                                    <p className="text-[10px] uppercase font-semibold text-muted-foreground">Signed</p>
+                                    <p className="text-xl font-bold mt-0.5 text-emerald-600 dark:text-emerald-400">{statusCounts.signed ?? 0}</p>
+                                </CardContent>
+                            </Card>
+                        </div>
+                        {/* Employee signing list */}
+                        <Card className="border border-border/50">
+                            <CardContent className="p-0">
+                                <div className="overflow-x-auto">
+                                    <Table>
+                                        <TableHeader><TableRow>
+                                            <TableHead className="text-xs">Employee</TableHead>
+                                            <TableHead className="text-xs">Period</TableHead>
+                                            <TableHead className="text-xs">Net Pay</TableHead>
+                                            <TableHead className="text-xs">Signing Status</TableHead>
+                                        </TableRow></TableHeader>
+                                        <TableBody>
+                                            {filteredPayslips.filter((p) => p.status === "published" || p.status === "signed").length === 0 ? (
+                                                <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-8">No payslips awaiting signature</TableCell></TableRow>
+                                            ) : filteredPayslips.filter((p) => p.status === "published" || p.status === "signed").map((ps) => (
+                                                <TableRow key={ps.id}>
+                                                    <TableCell className="text-sm font-medium">{getEmpName(ps.employeeId)}</TableCell>
+                                                    <TableCell className="text-xs text-muted-foreground">{ps.periodStart} – {ps.periodEnd}</TableCell>
+                                                    <TableCell className="text-sm font-medium">₱{ps.netPay.toLocaleString()}</TableCell>
+                                                    <TableCell>
+                                                        {ps.status === "signed" ? (
+                                                            <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                                                                <PenTool className="h-3 w-3" />
+                                                                <span className="text-[10px] font-semibold">Signed</span>
+                                                                {ps.signedAt && <span className="text-[9px] text-muted-foreground ml-1">{new Date(ps.signedAt).toLocaleDateString()}</span>}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                                                                <FileSignature className="h-3 w-3 animate-pulse" />
+                                                                <span className="text-[10px] font-semibold">Awaiting Signature</span>
+                                                            </span>
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </CardContent>
+                        </Card>
+                        <div className="rounded-lg bg-muted/30 border border-border/50 p-3">
+                            <p className="text-xs text-muted-foreground text-center">
+                                Employees sign payslips from their portal. Once all are signed, proceed to <strong>Record Payment</strong>.
+                            </p>
+                        </div>
+                    </div>
+                    )}
+
+                    {/* ═══ STEP: Record Payment ═══ */}
+                    {wizardStep === "pay" && canIssue && (
+                    <div className="space-y-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-2"><CreditCard className="h-4 w-4 text-muted-foreground" /> Record Payment</h3>
+                        <p className="text-xs text-muted-foreground">Mark signed payslips as paid after disbursement.</p>
+                        <PayslipTable
+                            payslips={payslips}
+                            runs={runs}
+                            getEmpName={getEmpName}
+                            isAdmin={canIssue}
+                            onMarkPaid={(id, method, reference, cashAmount, paymentProofUrl) => {
+                                confirmPaidByFinance(id, currentUser.name, method, reference, cashAmount, paymentProofUrl);
+                                const ps = payslips.find(p => p.id === id);
+                                if (ps) dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, method }, ps.employeeId);
+                                toast.success("Payment confirmed");
+                            }}
+                        />
+                    </div>
+                    )}
+
+                    {/* ═══ Payroll Runs (shown in issue/lock step) ═══ */}
+                    {(wizardStep === "issue" || wizardStep === "lock") && (
+                    <div className="space-y-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-2"><Lock className="h-4 w-4 text-muted-foreground" /> Payroll Runs</h3>
                     <Card className="border border-border/50">
                         <CardContent className="p-0">
                             <div className="overflow-x-auto">
                                 <Table>
                                     <TableHeader><TableRow>
-                                        <TableHead className="text-xs">Date</TableHead><TableHead className="text-xs">Payslips</TableHead>
+                                        <TableHead className="text-xs">Period</TableHead><TableHead className="text-xs">Payslips</TableHead>
                                         <TableHead className="text-xs">Total Gross</TableHead><TableHead className="text-xs">Total Net</TableHead>
                                         <TableHead className="text-xs">Status</TableHead>
                                         {canIssue && <TableHead className="text-xs w-40">Actions</TableHead>}
@@ -996,37 +1202,97 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                         ) : payrollRuns.map((run) => {
                                             const locked = isRunLocked(run.date);
                                             const runObj = runs.find((r) => r.periodLabel === run.date);
-                                            const runStatus = runObj?.status ?? (locked ? "locked" : "draft");
+                                            const runStatus = runObj?.status ?? "draft";
+                                            // Format period label for display: "2026-05-01/2026-05-15" → "May 01 – May 15"
+                                            const [pStart, pEnd] = run.date.split("/");
+                                            const periodDisplay = pStart && pEnd
+                                                ? `${pStart} – ${pEnd}`
+                                                : run.date;
                                             return (
                                                 <TableRow key={run.date}>
-                                                    <TableCell className="text-sm">{run.date}</TableCell>
-                                                    <TableCell className="text-sm">{run.count}</TableCell>
+                                                    <TableCell className="text-sm">{periodDisplay}</TableCell>
+                                                    <TableCell className="text-sm">{run.count}{run.draftCount > 0 && <span className="text-amber-500 text-[10px] ml-1">({run.draftCount} draft)</span>}</TableCell>
                                                     <TableCell className="text-sm">₱{run.totalGross.toLocaleString()}</TableCell>
                                                     <TableCell className="text-sm font-medium">₱{run.totalNet.toLocaleString()}</TableCell>
                                                     <TableCell>
-                                                        <Badge variant="secondary" className={`text-[10px] ${
-                                                            runStatus === "completed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
+                                                        <Badge variant="secondary" className={`text-[10px] ${runStatus === "completed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
                                                             runStatus === "locked" ? "bg-red-500/15 text-red-700 dark:text-red-400" :
-                                                            runStatus === "draft" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
-                                                            "bg-slate-500/15 text-slate-700 dark:text-slate-400"
-                                                        }`}>{locked && <Lock className="h-3 w-3 mr-1 inline" />}{runStatus}</Badge>
+                                                                runStatus === "published" ? "bg-violet-500/15 text-violet-700 dark:text-violet-400" :
+                                                                    runStatus === "draft" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+                                                                        "bg-slate-500/15 text-slate-700 dark:text-slate-400"
+                                                            }`}>{locked && <Lock className="h-3 w-3 mr-1 inline" />}{runStatus}</Badge>
                                                     </TableCell>
                                                     {canIssue && (
                                                         <TableCell>
                                                             <div className="flex items-center gap-1">
                                                                 <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500" title="Export bank file" onClick={() => exportBankFile(run.date, employees.map((e) => ({ id: e.id, name: e.name, salary: e.salary })))}><Download className="h-3.5 w-3.5" /></Button>
-                                                                {!runObj && <Button variant="ghost" size="sm" className="h-7 text-[10px] text-amber-600" onClick={() => { createDraftRun(run.date, payslips.filter((p) => p.issuedAt === run.date).map((p) => p.id)); toast.success("Draft created"); }}>Draft</Button>}
                                                                 {runObj && !locked && (
                                                                     <AlertDialog>
                                                                         <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" title="Lock"><Lock className="h-3.5 w-3.5" /></Button></AlertDialogTrigger>
+                                                                        <AlertDialogContent className="max-w-lg">
+                                                                            <AlertDialogHeader>
+                                                                                <AlertDialogTitle>Lock Payroll Run?</AlertDialogTitle>
+                                                                                <AlertDialogDescription>This will lock <strong>{periodDisplay}</strong>. Once locked, draft payslips can be published and employees can begin signing.</AlertDialogDescription>
+                                                                            </AlertDialogHeader>
+                                                                            {/* ── Readiness Checklist Gate ── */}
+                                                                            {runObj && (
+                                                                                <PayrollReadinessChecklist
+                                                                                    runId={runObj.id}
+                                                                                    periodLabel={runObj.periodLabel}
+                                                                                    payslipIds={runObj.payslipIds ?? []}
+                                                                                    onAllChecksPassed={(passed) => setChecklistPassedMap((prev) => ({ ...prev, [runObj.id]: passed }))}
+                                                                                />
+                                                                            )}
+                                                                            <AlertDialogFooter>
+                                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                                <AlertDialogAction
+                                                                                    disabled={!checklistPassedMap[runObj?.id ?? ""]}
+                                                                                    className={!checklistPassedMap[runObj?.id ?? ""] ? "opacity-50 cursor-not-allowed" : ""}
+                                                                                    onClick={() => {
+                                                                                        lockRun(run.date, currentUser.id);
+                                                                                        useAuditStore.getState().log({ entityType: "payroll_run", entityId: run.date, action: "payroll_locked", performedBy: currentUser.id });
+                                                                                        toast.success("Payroll run locked");
+                                                                                    }}
+                                                                                >
+                                                                                    Lock
+                                                                                </AlertDialogAction>
+                                                                            </AlertDialogFooter>
+                                                                        </AlertDialogContent>
+                                                                    </AlertDialog>
+                                                                )}
+                                                                {locked && canLock && runStatus !== "completed" && (
+                                                                    <AlertDialog>
+                                                                        <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-amber-500" title="Unlock for correction"><LockOpen className="h-3.5 w-3.5" /></Button></AlertDialogTrigger>
                                                                         <AlertDialogContent>
-                                                                            <AlertDialogHeader><AlertDialogTitle>Lock Payroll Run?</AlertDialogTitle><AlertDialogDescription>This will permanently lock <strong>{run.date}</strong> and publish all draft payslips in this run.</AlertDialogDescription></AlertDialogHeader>
-                                                                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => { lockRun(run.date, currentUser.id); useAuditStore.getState().log({ entityType: "payroll_run", entityId: run.date, action: "payroll_locked", performedBy: currentUser.id }); toast.success("Run locked & payslips published"); }}>Lock</AlertDialogAction></AlertDialogFooter>
+                                                                            <AlertDialogHeader>
+                                                                                <AlertDialogTitle>Unlock Payroll Run?</AlertDialogTitle>
+                                                                                <AlertDialogDescription>This will unlock <strong>{periodDisplay}</strong> for corrections. Published payslips remain published — only the run lock is removed. You must re-lock to finalize the period again.</AlertDialogDescription>
+                                                                            </AlertDialogHeader>
+                                                                            <AlertDialogFooter>
+                                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                                <AlertDialogAction onClick={() => { unlockRun(run.date, currentUser.id); useAuditStore.getState().log({ entityType: "payroll_run", entityId: run.date, action: "payroll_locked", performedBy: currentUser.id }); toast.success("Run unlocked for corrections"); }}>Unlock</AlertDialogAction>
+                                                                            </AlertDialogFooter>
                                                                         </AlertDialogContent>
                                                                     </AlertDialog>
                                                                 )}
                                                                 {locked && <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500" title="Policy snapshot" onClick={() => setSnapshotRunDate(run.date)}><Shield className="h-3.5 w-3.5" /></Button>}
-                                                                {locked && runStatus === "locked" && <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" title="Mark Completed" onClick={() => { markRunPaid(run.date); useAuditStore.getState().log({ entityType: "payroll_run", entityId: run.date, action: "payroll_completed", performedBy: currentUser.id }); toast.success("Run completed"); }}><CheckCircle className="h-3.5 w-3.5" /></Button>}
+                                                                {locked && (runStatus === "locked" || runStatus === "published") && (() => {
+                                                                    const canComplete = run.allSigned;
+                                                                    return (
+                                                                        <Button
+                                                                            variant="ghost" size="icon"
+                                                                            className={`h-7 w-7 ${canComplete ? "text-emerald-600" : "text-muted-foreground/40 cursor-not-allowed"}`}
+                                                                            title={canComplete ? "Mark Completed" : `${run.signedCount}/${run.count} payslips signed — all must be signed first`}
+                                                                            disabled={!canComplete}
+                                                                            onClick={() => {
+                                                                                if (!canComplete) return;
+                                                                                markRunPaid(run.date);
+                                                                                useAuditStore.getState().log({ entityType: "payroll_run", entityId: run.date, action: "payroll_completed", performedBy: currentUser.id });
+                                                                                toast.success("Run completed");
+                                                                            }}
+                                                                        ><CheckCircle className="h-3.5 w-3.5" /></Button>
+                                                                    );
+                                                                })()}
                                                             </div>
                                                         </TableCell>
                                                     )}
@@ -1038,24 +1304,23 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                             </div>
                         </CardContent>
                     </Card>
-                </TabsContent>
+                    </div>
+                    )}
 
-                {/* Management Tab */}
-                {canIssue && (
-                    <TabsContent value="management" className="mt-4">
-                        <PayslipTable
-                            payslips={payslips}
-                            getEmpName={getEmpName}
-                            isAdmin={canIssue}
-                            onMarkPaid={(id, method, reference, cashAmount, paymentProofUrl) => {
-                                confirmPaidByFinance(id, currentUser.name, method, reference, cashAmount, paymentProofUrl);
-                                const ps = payslips.find(p => p.id === id);
-                                if (ps) dispatchNotification("payment_confirmed", { name: getEmpName(ps.employeeId), period: `${ps.periodStart} — ${ps.periodEnd}`, method }, ps.employeeId);
-                                toast.success("Payment confirmed");
-                            }}
-                        />
-                    </TabsContent>
-                )}
+                        </div>
+
+                        {/* ── Right: Workflow Wizard Sidebar ── */}
+                        <div className="hidden lg:block w-64 shrink-0">
+                            <div className="sticky top-4">
+                                <Card className="border border-border/50">
+                                    <CardContent className="p-4">
+                                        <PayrollPaymentWizard activeStep={wizardStep} onStepClick={setWizardStep} />
+                                    </CardContent>
+                                </Card>
+                            </div>
+                        </div>
+                    </div>
+                </TabsContent>
 
                 {/* Custom Deductions & Allowance Templates Tab */}
                 {canIssue && (
@@ -1222,7 +1487,7 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                     </Badge>
                                 </div>
                                 <p className="text-sm text-muted-foreground mb-4">
-                                    Configure custom SSS, PhilHealth, Pag-IBIG, and BIR withholding tax calculations per employee. 
+                                    Configure custom SSS, PhilHealth, Pag-IBIG, and BIR withholding tax calculations per employee.
                                     Use for minimum wage earners, senior citizens, PWDs, or special arrangements.
                                 </p>
 
@@ -1694,12 +1959,11 @@ export default function AdminPayrollView({ mode = "admin" }: AdminPayrollViewPro
                                             <p className="text-xs text-muted-foreground">{viewedPayslip.periodStart} – {viewedPayslip.periodEnd}</p>
                                             {viewedPayslip.payFrequency && <p className="text-[10px] text-muted-foreground capitalize mt-0.5">{viewedPayslip.payFrequency.replace("_", "-")} payroll</p>}
                                         </div>
-                                        <Badge variant="secondary" className={`text-[10px] ${
-                                            viewedPayslip.status === "signed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
+                                        <Badge variant="secondary" className={`text-[10px] ${viewedPayslip.status === "signed" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
                                             viewedPayslip.status === "published" ? "bg-violet-500/15 text-violet-700 dark:text-violet-400" :
-                                            viewedPayslip.status === "draft" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
-                                            "bg-slate-500/15 text-slate-700 dark:text-slate-400"
-                                        }`}>{viewedPayslip.status}</Badge>
+                                                viewedPayslip.status === "draft" ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+                                                    "bg-slate-500/15 text-slate-700 dark:text-slate-400"
+                                            }`}>{viewedPayslip.status}</Badge>
                                     </div>
                                     {/* Earnings */}
                                     <div className="border-t border-border/50 pt-3 space-y-1.5">
